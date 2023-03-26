@@ -1,0 +1,32 @@
+[package]
+name = "firmware"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+meboard = []
+fooboard = []
+default = ["meboard"]
+
+[dependencies]
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd", features = ["nightly", "defmt", "nrf52840", "gpiote", "time-driver-rtc1"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd", features = ["nightly", "defmt", "integrated-timers"] }
+embassy-macros = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd", features = ["nightly", "defmt", "defmt-timestamp-uptime"] }
+
+cortex-m = "0.7.2"
+cortex-m-rt = "0.7.0"
+defmt = "0.3"
+defmt-rtt = "0.4.0"
+panic-probe = { version = "0.3", features= ["print-defmt"] }
+nrf-softdevice = { version = "0.1.0", path = "../nrf-softdevice/nrf-softdevice", features = ["nightly", "defmt", "nrf52840", "s140", "ble-peripheral", "ble-central", "critical-section-impl", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "ble-sec"] }
+nrf-softdevice-s140 = { version = "0.1.1", path = "../nrf-softdevice/nrf-softdevice-s140" }
+embedded-storage = "0.3.0"
+embedded-storage-async = "0.4.0"
+futures = { version = "0.3.5", default-features = false }
+fixed = "1.2.0"
+heapless = "0.7.1"
+atomic-pool = "1.0.0"
+static_cell = "1.0.0"
+nb = "1.1.0"
