@@ -1,0 +1,41 @@
+[package]
+name = "butterware"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+left = ["procedural/left"]
+right = ["procedural/right"]
+auto-reset = []
+lighting = []
+default = ["auto-reset", "lighting"]
+
+[dependencies]
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88", features = ["nightly", "defmt", "nrf52840", "gpiote", "time-driver-rtc1", "nfc-pins-as-gpio"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "nightly", "defmt", "integrated-timers"] }
+embassy-macros = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88", features = ["nightly", "defmt", "defmt-timestamp-uptime"] }
+embassy-cortex-m = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88", features = ["prio-bits-3"]}
+
+procedural = { path = "procedural/" }
+
+cortex-m = "0.7.2"
+cortex-m-rt = "0.7.0"
+defmt = "=0.3.2"
+defmt-rtt = "0.4.0"
+panic-probe = { version = "0.3", features= ["print-defmt"] }
+nrf-softdevice = { git = "https://github.com/vE5li/nrf-softdevice", rev = "64a5000e8fa39367d459e7306c1a069ccc365b47", features = ["nightly", "defmt", "nrf52840", "s140", "ble-peripheral", "ble-central", "critical-section-impl", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "ble-sec"] }
+nrf-softdevice-s140 = { git = "https://github.com/vE5li/nrf-softdevice", rev = "64a5000e8fa39367d459e7306c1a069ccc365b47"  }
+embedded-storage = "0.3.0"
+embedded-storage-async = "0.4.0"
+futures = { version = "0.3.5", default-features = false, features = ["async-await"] }
+fixed = "1.2.0"
+heapless = "0.7.1"
+atomic-pool = "1.0.0"
+static_cell = "1.0.0"
+nb = "1.1.0"
+elain = "0.3.0"
+palette = { version = "0.7.1", default-features = false, features = ["libm"] }
+libm = "0.2.6"
+bitflags = "2.2.1"
