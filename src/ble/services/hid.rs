@@ -7,6 +7,7 @@ use nrf_softdevice::ble::{Connection, DeferredReadReply, SecurityMode, Uuid};
 use nrf_softdevice::Softdevice;
 
 use crate::interface::{Keyboard, Scannable};
+use crate::TestBit;
 
 pub struct InputReport;
 pub struct OutpetReport;
@@ -386,10 +387,11 @@ impl HidService {
         self.boot_output_report.on_write(handle, data);
     }
 
-    pub fn send_input_report<T>(&self, connection: &Connection, key_state: u64)
+    pub fn send_input_report<T>(&self, connection: &Connection, active_layer: usize, key_state: u64)
     where
         T: Keyboard,
         [(); <T as Scannable>::NAME_LENGTH]:,
+        [(); <T as Scannable>::MAXIMUM_ACTIVE_LAYERS]:,
         [(); <T as Scannable>::COLUMNS * <T as Scannable>::ROWS]:,
     {
         const SCAN_CODE_POSITION: usize = 2;
@@ -399,13 +401,13 @@ impl HidService {
         let mut offset = SCAN_CODE_POSITION;
 
         for index in 0..64 {
-            if (key_state >> index) & 0b1 != 0 {
+            if key_state.test_bit(index) {
                 if offset == REPORT_SIZE {
                     input_report[SCAN_CODE_POSITION..REPORT_SIZE].fill(crate::keys::ERR_OVF.keycode());
                     break;
                 }
 
-                let key = T::LAYER_LOOKUP[0][T::MATRIX[index]].keycode();
+                let key = T::LAYER_LOOKUP[active_layer][T::MATRIX[index]].keycode();
                 input_report[offset] = key;
                 offset += 1;
             }

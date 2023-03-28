@@ -3,6 +3,7 @@ use embassy_nrf::peripherals::SPI3;
 use embassy_nrf::spim::{Config, Spim};
 
 use self::debounce::DebouncedKey;
+use crate::TestBit;
 use crate::interface::{Keyboard, UnwrapInfelliable};
 
 mod debounce;
@@ -12,7 +13,6 @@ pub struct SpiConfig {
     pub interrupt: embassy_nrf::interrupt::SPIM3,
     pub clock_pin: AnyPin,
     pub mosi_pin: AnyPin,
-    pub config: Config,
 }
 
 pub struct ScanPinConfig<const C: usize, const R: usize> {
@@ -40,13 +40,17 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
 
         let power_pin = self.power_pin.map(|pin| Output::new(pin, Level::High, OutputDrive::Standard));
 
+        // FIX: fix colliding names
+        let mut config_foo = Config::default();
+        config_foo.frequency = embassy_nrf::spim::Frequency::M8;
+
         let spi = self.spi_config.map(|config| {
             Spim::new_txonly(
                 config.interface,
                 config.interrupt,
                 config.clock_pin,
                 config.mosi_pin,
-                config.config,
+                config_foo,
             )
         });
 
@@ -70,17 +74,20 @@ pub struct KeyboardState<K>
 where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS]:,
 {
-    //pub active_layers: heapless::Vec<u8, 6>,
+    pub active_layers: heapless::Vec<(usize, usize), { K::MAXIMUM_ACTIVE_LAYERS }>,
     pub keys: [[DebouncedKey<K>; K::ROWS]; K::COLUMNS],
     pub previous_key_state: u64,
+    pub state_mask: u64,
 }
 
 impl<K> KeyboardState<K>
 where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS]:,
 {
     const DEFAULT_KEY: DebouncedKey<K> = DebouncedKey::new();
@@ -88,9 +95,27 @@ where
 
     pub const fn new() -> Self {
         Self {
-            //active_layers: heapless::Vec::new(),
+            active_layers: heapless::Vec::new(),
             keys: [Self::DEFAULT_ROW; K::COLUMNS],
             previous_key_state: 0,
+            state_mask: !0,
+        }
+    }
+
+    pub fn active_layer_index(&self) -> usize {
+        self.active_layers.last().map(|layer| layer.0).unwrap_or(0)
+    }
+
+    pub fn lock_keys(&mut self) {
+        for column in 0..K::COLUMNS {
+            for row in 0..K::ROWS {
+                let key_index = column * K::ROWS + row;
+
+                // Only disable keys that are not part of a hold layer.
+                if self.state_mask.test_bit(key_index) {
+                    self.keys[column][row].lock();
+                }
+            }
         }
     }
 }

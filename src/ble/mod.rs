@@ -7,7 +7,7 @@ use crate::interface::{Keyboard, Scannable};
 mod advertising;
 mod bonder;
 mod services;
-pub use self::advertising::AdvertisingData;
+pub use self::advertising::{AdvertisingData, KEYBOARD_ICON};
 pub use self::bonder::Bonder;
 use self::services::*;
 
@@ -37,13 +37,14 @@ impl<'a> Server<'a> {
         self.softdevice = Some(softdevice);
     }
 
-    pub fn send_input_report<T>(&self, connection: &Connection, key_state: u64)
+    pub fn send_input_report<T>(&self, connection: &Connection, active_layer: usize, key_state: u64)
     where
         T: Keyboard,
         [(); <T as Scannable>::NAME_LENGTH]:,
+        [(); <T as Scannable>::MAXIMUM_ACTIVE_LAYERS]:,
         [(); <T as Scannable>::COLUMNS * <T as Scannable>::ROWS]:,
     {
-        self.hid_service.send_input_report::<T>(connection, key_state);
+        self.hid_service.send_input_report::<T>(connection, active_layer, key_state);
     }
 }
 

@@ -36,7 +36,9 @@ impl Scannable for Meboard {
 
 impl Keyboard for Meboard {
     const DEVICE_NAME: &'static [u8; Self::NAME_LENGTH] = b"Meboard";
+
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS]] = MeboardLayers::LAYER_LOOKUP;
+
     #[rustfmt::skip]
     const MATRIX: [usize; Self::COLUMNS * Self::ROWS] = [
         4, 9, 14, 19,
@@ -60,9 +62,6 @@ impl Keyboard for Meboard {
         let interrupt = interrupt::take!(SPIM3);
         interrupt.set_priority(interrupt::Priority::P2);
 
-        let mut config = Config::default();
-        config.frequency = embassy_nrf::spim::Frequency::M8;
-
         ScanPinConfig {
             columns: [
                 peripherals.P0_31.degrade(),
@@ -83,7 +82,6 @@ impl Keyboard for Meboard {
                 interrupt,
                 clock_pin: peripherals.P0_08.degrade(),
                 mosi_pin: peripherals.P0_06.degrade(),
-                config,
             }),
         }
     }

@@ -1,3 +1,7 @@
+// https://www.bluetooth.com/specifications/assigned-numbers/
+// Section 2.6 Appearance Values
+pub const KEYBOARD_ICON: u16 = 0x03C1;
+
 const MAXIMUM_ADVERTISE_LENGTH: usize = 31;
 
 pub struct AdvertisingData {
@@ -43,6 +47,10 @@ impl AdvertisingData {
 
     pub const fn add_name(self, name: &[u8]) -> Self {
         self.add_internal(0x9, name)
+    }
+
+    pub const fn add_appearance(self, appearance: u16) -> Self {
+        self.add_internal(0x19, &appearance.to_le_bytes())
     }
 
     pub fn get_slice(&self) -> &[u8] {

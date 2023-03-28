@@ -15,6 +15,7 @@ use embassy_nrf::interrupt;
 use embassy_time::{Duration, Timer};
 use futures::future::{select, Either};
 use futures::pin_mut;
+use keys::Mapping;
 use nrf_softdevice::ble::{gatt_server, peripheral};
 use nrf_softdevice::{raw, Softdevice};
 use panic_probe as _;
@@ -32,9 +33,32 @@ mod keyboards;
 use ble::Server;
 use keyboards::Used;
 
-use crate::ble::{AdvertisingData, Bonder};
+use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::hardware::KeyboardState;
-use crate::interface::Keyboard;
+use crate::interface::{Keyboard, Scannable};
+
+// TODO: rename to BitOperations or similar
+trait TestBit {
+    fn test_bit(self, offset: usize) -> bool;
+
+    fn clear_bit(&mut self, offset: usize);
+
+    fn set_bit(&mut self, offset: usize);
+}
+
+impl TestBit for u64 {
+    fn test_bit(self, offset: usize) -> bool {
+        (self >> offset) & 0b1 != 0
+    }
+
+    fn clear_bit(&mut self, offset: usize) {
+        *self &= !(1 << offset);
+    }
+
+    fn set_bit(&mut self, offset: usize) {
+        *self |= 1 << offset;
+    }
+}
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) {
@@ -92,7 +116,8 @@ async fn main(spawner: Spawner) -> ! {
     const ADVERTISING_DATA: AdvertisingData = AdvertisingData::new()
         .add_flags(raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8)
         .add_services(&[0x09, 0x18])
-        .add_name(Used::DEVICE_NAME);
+        .add_name(Used::DEVICE_NAME)
+        .add_appearance(KEYBOARD_ICON);
 
     #[rustfmt::skip]
     let scan_data = &[
@@ -168,9 +193,68 @@ async fn main(spawner: Spawner) -> ! {
                         column.set_low();
                     }
 
+                    // Try to pop layers
+                    while let Some(active_layer) = keyboard_state.active_layers.last() {
+                        let key_index = active_layer.1;
+
+                        match key_state.test_bit(key_index) {
+                            true => break,
+                            false => {
+                                keyboard_state.active_layers.pop();
+
+                                // We lock all keys except the layer keys. This avoids
+                                // cases where we leave a layer while holding a key and we
+                                // send the key again but from the lower layer.
+                                keyboard_state.lock_keys();
+
+                                // Add layer key to the mask again (re-enable the key).
+                                keyboard_state.state_mask.set_bit(key_index);
+
+                                // For now we just set the entire key_state to 0
+                                key_state = 0;
+                            }
+                        }
+                    }
+
+                    // Ignore all keys that are held as part of a layer.
+                    key_state &= keyboard_state.state_mask;
+
                     if key_state != keyboard_state.previous_key_state {
-                        server.send_input_report::<Used>(&connection, key_state);
+
+                        // FIX: unclear what happens if we press multiple layer keys on the same
+                        // event
+
+                        let active_layer = Used::LAYER_LOOKUP[keyboard_state.active_layer_index()];
+
+                        for key_index in 0..Used::COLUMNS * Used::ROWS {
+                            // TODO: make if let chain
+                            if let Mapping::Layer(layer_index) = active_layer[Used::MATRIX[key_index]] {
+                                // Make sure that the same layer is not pushed twice in a row
+                                if key_state.test_bit(key_index) {
+                                    keyboard_state
+                                        .active_layers
+                                        .push((layer_index, key_index))
+                                        .expect("Active layer limit reached");
+
+                                    // Remove the key from the state mask (disable the key). This
+                                    // helps cut down on expensive updates and also ensures that we
+                                    // don't get any modifier keys in send_input_report.
+                                    keyboard_state.state_mask.clear_bit(key_index);
+
+                                    // We lock all keys except the layer keys. This avoids
+                                    // cases where we enter a layer while holding a key and we
+                                    // send the key again but from the new layer.
+                                    keyboard_state.lock_keys();
+
+                                    // For now we just set the entire key_state to 0
+                                    key_state = 0;
+                                }
+                            }
+                        }
+
                         keyboard_state.previous_key_state = key_state;
+
+                        server.send_input_report::<Used>(&connection, keyboard_state.active_layer_index(), key_state);
                     }
 
                     /*if key_state != 0 {

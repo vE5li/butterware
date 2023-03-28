@@ -7,11 +7,13 @@ pub struct DebouncedKey<K>
 where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS]:,
 {
     last_state_change: u64,
     internal_state: bool,
     output_state: bool,
+    locked: bool,
     phantom_data: PhantomData<K>,
 }
 
@@ -19,6 +21,7 @@ impl<K> DebouncedKey<K>
 where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS]:,
 {
     pub const fn new() -> Self {
@@ -26,6 +29,7 @@ where
             last_state_change: 0,
             internal_state: false,
             output_state: false,
+            locked: false,
             phantom_data: PhantomData,
         }
     }
@@ -49,10 +53,18 @@ where
         // internal_state.
         let debounced = now - self.last_state_change >= K::DEBOUNCE_TICKS;
         self.output_state =
-            (BOOL_STATE[(!debounced) as usize] && self.output_state) || (BOOL_STATE[debounced as usize] && self.internal_state);
+            (BOOL_STATE[(!debounced || self.locked) as usize] && self.output_state) || (BOOL_STATE[(debounced && !self.locked) as usize] && self.internal_state);
+
+        // Only set locked to false if the debounce time passed and the internal_state is false.
+        self.locked &= !debounced || self.internal_state;
     }
 
     pub fn is_down(&self) -> bool {
         self.output_state
+    }
+
+    pub fn lock(&mut self) {
+        self.output_state = false;
+        self.locked = true;
     }
 }

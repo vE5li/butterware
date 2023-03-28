@@ -1,8 +1,8 @@
-pub struct Layer(pub u8);
+pub struct Layer(pub usize);
 
 pub enum Mapping {
-    Layer(u8),
-    LayerOrKey(u8, u8),
+    Layer(usize),
+    LayerOrKey(usize, u8),
     Key(u8),
 }
 
