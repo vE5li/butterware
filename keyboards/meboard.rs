@@ -32,10 +32,11 @@ impl Meboard {
 impl Scannable for Meboard {
     const COLUMNS: usize = 5;
     const ROWS: usize = 4;
+    const NAME_LENGTH: usize = 7;
 }
 
 impl Keyboard for Meboard {
-    const DEVICE_NAME: &'static str = "Meboard";
+    const DEVICE_NAME: &'static [u8; Self::NAME_LENGTH] = b"Meboard";
 
     #[rustfmt::skip]
     const MATRIX: [usize; Self::COLUMNS * Self::ROWS] = [

@@ -5,7 +5,6 @@ edition = "2021"
 
 [features]
 meboard = []
-fooboard = []
 default = ["meboard"]
 
 [dependencies]
