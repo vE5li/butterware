@@ -2,16 +2,15 @@ use embassy_nrf::gpio::Pin;
 use embassy_nrf::spim::Config;
 use embassy_nrf::{interrupt, Peripherals};
 
+use crate::hardware::{ScanPinConfig, SpiConfig};
+use crate::interface::{Keyboard, Scannable};
 use crate::keys::*;
-use crate::{Keyboard, ScanPinConfig, Scannable};
 
 pub struct Meboard;
 
 register_layers!(Meboard, MeboardLayers, [BASE, SPECIAL]);
 
 impl Meboard {
-    const SPE_SPC: Mapping = Mapping::layer_or_key(MeboardLayers::SPECIAL, SPACE);
-
     #[rustfmt::skip]
     const BASE: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS] = [
         Q, W, F, P, B,
@@ -19,7 +18,6 @@ impl Meboard {
         Z, X, C, D, V,
         NONE, NONE, NONE, NONE, Self::SPE_SPC,
     ];
-
     #[rustfmt::skip]
     const SPECIAL: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS] = [
         N1, N2, N3, N4, N5,
@@ -27,17 +25,18 @@ impl Meboard {
         Z, X, C, D, V,
         NONE, NONE, NONE, NONE, NONE,
     ];
+    const SPE_SPC: Mapping = Mapping::layer_or_key(MeboardLayers::SPECIAL, SPACE);
 }
 
 impl Scannable for Meboard {
     const COLUMNS: usize = 5;
-    const ROWS: usize = 4;
     const NAME_LENGTH: usize = 7;
+    const ROWS: usize = 4;
 }
 
 impl Keyboard for Meboard {
     const DEVICE_NAME: &'static [u8; Self::NAME_LENGTH] = b"Meboard";
-
+    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS]] = MeboardLayers::LAYER_LOOKUP;
     #[rustfmt::skip]
     const MATRIX: [usize; Self::COLUMNS * Self::ROWS] = [
         4, 9, 14, 19,
@@ -47,17 +46,11 @@ impl Keyboard for Meboard {
         0, 5, 10, 15
     ];
 
-    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS]] =
-        MeboardLayers::LAYER_LOOKUP;
-
     fn new() -> Self {
         Self
     }
 
-    fn init_peripherals(
-        &mut self,
-        peripherals: Peripherals,
-    ) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
+    fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
         use embassy_nrf::interrupt::InterruptExt;
 
         // Enable power on the 3V rail.
@@ -85,7 +78,7 @@ impl Keyboard for Meboard {
                 peripherals.P0_11.degrade(),
             ],
             power_pin: Some(power_pin),
-            spi_config: Some(crate::SpiConfig {
+            spi_config: Some(SpiConfig {
                 interface: peripherals.SPI3,
                 interrupt,
                 clock_pin: peripherals.P0_08.degrade(),

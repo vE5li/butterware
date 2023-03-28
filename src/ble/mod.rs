@@ -2,13 +2,14 @@ use nrf_softdevice::ble::gatt_server::{self, RegisterError, WriteOp};
 use nrf_softdevice::ble::{Connection, DeferredReadReply};
 use nrf_softdevice::Softdevice;
 
-use crate::{Keyboard, Scannable};
+use crate::interface::{Keyboard, Scannable};
 
+mod advertising;
 mod bonder;
 mod services;
-use self::services::*;
-
+pub use self::advertising::AdvertisingData;
 pub use self::bonder::Bonder;
+use self::services::*;
 
 // Make this a builder struct so we can make the softdevice reference nice
 pub struct Server<'a> {

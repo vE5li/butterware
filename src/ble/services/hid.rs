@@ -2,11 +2,11 @@ use core::marker::PhantomData;
 
 use nrf_softdevice::ble::gatt_server::builder::ServiceBuilder;
 use nrf_softdevice::ble::gatt_server::characteristic::{Attribute, Metadata, Properties};
-use nrf_softdevice::ble::gatt_server::{CharacteristicHandles, DescriptorHandle, RegisterError, self};
-use nrf_softdevice::ble::{SecurityMode, Uuid, Connection, DeferredReadReply};
+use nrf_softdevice::ble::gatt_server::{self, CharacteristicHandles, DescriptorHandle, RegisterError};
+use nrf_softdevice::ble::{Connection, DeferredReadReply, SecurityMode, Uuid};
 use nrf_softdevice::Softdevice;
 
-use crate::{Scannable, Keyboard};
+use crate::interface::{Keyboard, Scannable};
 
 pub struct InputReport;
 pub struct OutpetReport;
@@ -413,12 +413,7 @@ impl HidService {
 
         defmt::info!("Sending input report with value {:?}", input_report);
 
-        gatt_server::notify_value(
-            connection,
-            self.input_report.characteristic_handles.value_handle,
-            &input_report,
-        )
-        .unwrap();
+        gatt_server::notify_value(connection, self.input_report.characteristic_handles.value_handle, &input_report).unwrap();
     }
 
     pub fn on_deferred_read(

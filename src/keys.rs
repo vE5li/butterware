@@ -39,7 +39,7 @@ pub const MOD_RMETA: Mapping = Key(0x80);
  * Scan codes - last N slots in the HID report (usually 6).
  * 0x00 if no key pressed.
  *
- * If more than N keys are pressed, the HID reports 
+ * If more than N keys are pressed, the HID reports
  * ERR_OVF in all slots to indicate this condition.
  */
 
