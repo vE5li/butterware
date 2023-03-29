@@ -12,13 +12,14 @@ impl Mapping {
     }
 
     pub const fn layer_or_key(layer: Layer, mapping: Mapping) -> Self {
+        // FIX: make sure that we cannot pass a layer_or_key here
         Self::LayerOrKey(layer.0, mapping.keycode())
     }
 
     pub const fn keycode(&self) -> u8 {
         match self {
             Mapping::Layer(..) => panic!("mapping layer cannot be used as a regular key"),
-            Mapping::LayerOrKey(..) => panic!("mapping layer or key cannot be used as a regular key"),
+            Mapping::LayerOrKey(_, value) => *value,
             Key(value) => *value,
         }
     }

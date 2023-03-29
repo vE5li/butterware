@@ -3,8 +3,8 @@ use embassy_nrf::peripherals::SPI3;
 use embassy_nrf::spim::{Config, Spim};
 
 use self::debounce::DebouncedKey;
-use crate::TestBit;
 use crate::interface::{Keyboard, UnwrapInfelliable};
+use crate::TestBit;
 
 mod debounce;
 
@@ -70,6 +70,13 @@ pub struct ScanPins<'a, const C: usize, const R: usize> {
     pub spi: Option<Spim<'a, SPI3>>,
 }
 
+#[derive(Debug)]
+pub struct ActiveLayer {
+    pub layer_index: usize,
+    pub key_index: usize,
+    pub tap_timer: Option<u64>,
+}
+
 pub struct KeyboardState<K>
 where
     K: Keyboard,
@@ -77,7 +84,7 @@ where
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS]:,
 {
-    pub active_layers: heapless::Vec<(usize, usize), { K::MAXIMUM_ACTIVE_LAYERS }>,
+    pub active_layers: heapless::Vec<ActiveLayer, { K::MAXIMUM_ACTIVE_LAYERS }>,
     pub keys: [[DebouncedKey<K>; K::ROWS]; K::COLUMNS],
     pub previous_key_state: u64,
     pub state_mask: u64,
@@ -103,7 +110,7 @@ where
     }
 
     pub fn active_layer_index(&self) -> usize {
-        self.active_layers.last().map(|layer| layer.0).unwrap_or(0)
+        self.active_layers.last().map(|layer| layer.layer_index).unwrap_or(0)
     }
 
     pub fn lock_keys(&mut self) {

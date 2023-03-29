@@ -12,6 +12,7 @@ use embassy_executor::Spawner;
 use embassy_nrf as _; // time driver
 use embassy_nrf::config::{HfclkSource, LfclkSource};
 use embassy_nrf::interrupt;
+use embassy_time::driver::now;
 use embassy_time::{Duration, Timer};
 use futures::future::{select, Either};
 use futures::pin_mut;
@@ -34,7 +35,7 @@ use ble::Server;
 use keyboards::Used;
 
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
-use crate::hardware::KeyboardState;
+use crate::hardware::{ActiveLayer, KeyboardState};
 use crate::interface::{Keyboard, Scannable};
 
 // TODO: rename to BitOperations or similar
@@ -193,13 +194,21 @@ async fn main(spawner: Spawner) -> ! {
                         column.set_low();
                     }
 
+                    let mut inject_mask = 0;
+
                     // Try to pop layers
                     while let Some(active_layer) = keyboard_state.active_layers.last() {
-                        let key_index = active_layer.1;
+                        let key_index = active_layer.key_index;
 
                         match key_state.test_bit(key_index) {
                             true => break,
                             false => {
+                                // Check if we want to execute the tap action for this layer (if
+                                // present).
+                                if matches!(active_layer.tap_timer, Some(time) if now() - time < 10000) {
+                                    inject_mask.set_bit(key_index);
+                                }
+
                                 keyboard_state.active_layers.pop();
 
                                 // We lock all keys except the layer keys. This avoids
@@ -219,42 +228,72 @@ async fn main(spawner: Spawner) -> ! {
                     // Ignore all keys that are held as part of a layer.
                     key_state &= keyboard_state.state_mask;
 
-                    if key_state != keyboard_state.previous_key_state {
-
+                    if key_state | inject_mask != keyboard_state.previous_key_state {
                         // FIX: unclear what happens if we press multiple layer keys on the same
                         // event
 
                         let active_layer = Used::LAYER_LOOKUP[keyboard_state.active_layer_index()];
 
                         for key_index in 0..Used::COLUMNS * Used::ROWS {
-                            // TODO: make if let chain
-                            if let Mapping::Layer(layer_index) = active_layer[Used::MATRIX[key_index]] {
-                                // Make sure that the same layer is not pushed twice in a row
-                                if key_state.test_bit(key_index) {
-                                    keyboard_state
-                                        .active_layers
-                                        .push((layer_index, key_index))
-                                        .expect("Active layer limit reached");
+                            // Get layer index and optional tap key.
+                            let (layer_index, tap_timer) = match active_layer[Used::MATRIX[key_index]] {
+                                Mapping::Layer(layer_index) => (layer_index, None),
+                                Mapping::LayerOrKey(layer_index, _) => (layer_index, Some(now())),
+                                Mapping::Key(..) => continue,
+                            };
 
-                                    // Remove the key from the state mask (disable the key). This
-                                    // helps cut down on expensive updates and also ensures that we
-                                    // don't get any modifier keys in send_input_report.
-                                    keyboard_state.state_mask.clear_bit(key_index);
+                            // Make sure that the same layer is not pushed twice in a row
+                            if key_state.test_bit(key_index) {
+                                let new_active_layer = ActiveLayer {
+                                    layer_index,
+                                    key_index,
+                                    tap_timer,
+                                };
 
-                                    // We lock all keys except the layer keys. This avoids
-                                    // cases where we enter a layer while holding a key and we
-                                    // send the key again but from the new layer.
-                                    keyboard_state.lock_keys();
+                                keyboard_state
+                                    .active_layers
+                                    .push(new_active_layer)
+                                    .expect("Active layer limit reached");
 
-                                    // For now we just set the entire key_state to 0
-                                    key_state = 0;
-                                }
+                                // Remove the key from the state mask (disable the key). This
+                                // helps cut down on expensive updates and also ensures that we
+                                // don't get any modifier keys in send_input_report.
+                                keyboard_state.state_mask.clear_bit(key_index);
+
+                                // We lock all keys except the layer keys. This avoids
+                                // cases where we enter a layer while holding a key and we
+                                // send the key again but from the new layer.
+                                keyboard_state.lock_keys();
+
+                                // For now we just set the entire key_state to 0
+                                key_state = 0;
                             }
                         }
 
-                        keyboard_state.previous_key_state = key_state;
+                        // If the key state is not zero, that there is at least one non-layer
+                        // button pressed, since layer keys are masked out.
+                        if key_state != 0 {
+                            // If a regular key is pressed and there is an active layer, we set the timer to
+                            // `None` to prevent the tap action from executing if the layer key is released
+                            // too quickly.
+                            if let Some(active_layer) = keyboard_state.active_layers.last_mut() {
+                                active_layer.tap_timer = None;
+                            }
+                        }
 
-                        server.send_input_report::<Used>(&connection, keyboard_state.active_layer_index(), key_state);
+                        // Inject key press from tap actions. Only a single bit should be set.
+                        key_state |= inject_mask;
+
+                        // Since we might have altered the key state we check again if it changed
+                        // to avoid sending the same input report multiple times.
+                        if key_state != keyboard_state.previous_key_state {
+
+                            // We save the state after potentially injecting an additional key press, since
+                            // that will cause the next scan to update again, releasing the key on the host.
+                            keyboard_state.previous_key_state = key_state;
+
+                            server.send_input_report::<Used>(&connection, keyboard_state.active_layer_index(), key_state);
+                        }
                     }
 
                     /*if key_state != 0 {
