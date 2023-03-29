@@ -205,7 +205,7 @@ async fn main(spawner: Spawner) -> ! {
                             false => {
                                 // Check if we want to execute the tap action for this layer (if
                                 // present).
-                                if matches!(active_layer.tap_timer, Some(time) if now() - time < 10000) {
+                                if matches!(active_layer.tap_timer, Some(time) if now() - time < Used::TAP_TIME) {
                                     inject_mask.set_bit(key_index);
                                 }
 
@@ -219,8 +219,9 @@ async fn main(spawner: Spawner) -> ! {
                                 // Add layer key to the mask again (re-enable the key).
                                 keyboard_state.state_mask.set_bit(key_index);
 
-                                // For now we just set the entire key_state to 0
-                                key_state = 0;
+                                // For now we unset all non-layer keys so we don't get any key
+                                // presses form the current layer.
+                                key_state &= !keyboard_state.state_mask;
                             }
                         }
                     }
@@ -232,18 +233,25 @@ async fn main(spawner: Spawner) -> ! {
                         // FIX: unclear what happens if we press multiple layer keys on the same
                         // event
 
-                        let active_layer = Used::LAYER_LOOKUP[keyboard_state.active_layer_index()];
+                        let active_layer = Used::LAYER_LOOKUP[keyboard_state.current_layer_index()];
 
                         for key_index in 0..Used::COLUMNS * Used::ROWS {
                             // Get layer index and optional tap key.
                             let (layer_index, tap_timer) = match active_layer[Used::MATRIX[key_index]] {
-                                Mapping::Layer(layer_index) => (layer_index, None),
-                                Mapping::LayerOrKey(layer_index, _) => (layer_index, Some(now())),
                                 Mapping::Key(..) => continue,
+                                Mapping::Layer(layer_index) => (layer_index, None),
+                                Mapping::TapLayer(layer_index, _) => (layer_index, Some(now())),
                             };
 
                             // Make sure that the same layer is not pushed twice in a row
                             if key_state.test_bit(key_index) {
+                                // If we already have an active layer, we set it's timer to `None` to prevent
+                                // the tap action from executing if both layer
+                                // keys are released quickly.
+                                if let Some(active_layer) = keyboard_state.active_layers.last_mut() {
+                                    active_layer.tap_timer = None;
+                                }
+
                                 let new_active_layer = ActiveLayer {
                                     layer_index,
                                     key_index,
@@ -273,9 +281,9 @@ async fn main(spawner: Spawner) -> ! {
                         // If the key state is not zero, that there is at least one non-layer
                         // button pressed, since layer keys are masked out.
                         if key_state != 0 {
-                            // If a regular key is pressed and there is an active layer, we set the timer to
-                            // `None` to prevent the tap action from executing if the layer key is released
-                            // too quickly.
+                            // If a regular key is pressed and there is an active layer, we set it's timer
+                            // to `None` to prevent the tap action from
+                            // executing if the layer key is released quickly.
                             if let Some(active_layer) = keyboard_state.active_layers.last_mut() {
                                 active_layer.tap_timer = None;
                             }
@@ -287,12 +295,11 @@ async fn main(spawner: Spawner) -> ! {
                         // Since we might have altered the key state we check again if it changed
                         // to avoid sending the same input report multiple times.
                         if key_state != keyboard_state.previous_key_state {
-
                             // We save the state after potentially injecting an additional key press, since
                             // that will cause the next scan to update again, releasing the key on the host.
                             keyboard_state.previous_key_state = key_state;
 
-                            server.send_input_report::<Used>(&connection, keyboard_state.active_layer_index(), key_state);
+                            server.send_input_report::<Used>(&connection, keyboard_state.current_layer_index(), key_state);
                         }
                     }
 

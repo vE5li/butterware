@@ -1,9 +1,9 @@
 pub struct Layer(pub usize);
 
 pub enum Mapping {
-    Layer(usize),
-    LayerOrKey(usize, u8),
     Key(u8),
+    Layer(usize),
+    TapLayer(usize, u8),
 }
 
 impl Mapping {
@@ -11,16 +11,16 @@ impl Mapping {
         Self::Layer(layer.0)
     }
 
-    pub const fn layer_or_key(layer: Layer, mapping: Mapping) -> Self {
-        // FIX: make sure that we cannot pass a layer_or_key here
-        Self::LayerOrKey(layer.0, mapping.keycode())
+    pub const fn tap_layer(layer: Layer, mapping: Mapping) -> Self {
+        // FIX: make sure that we cannot pass a tap_layer here
+        Self::TapLayer(layer.0, mapping.keycode())
     }
 
     pub const fn keycode(&self) -> u8 {
         match self {
-            Mapping::Layer(..) => panic!("mapping layer cannot be used as a regular key"),
-            Mapping::LayerOrKey(_, value) => *value,
             Key(value) => *value,
+            Mapping::Layer(..) => panic!("mapping layer cannot be used as a regular key"),
+            Mapping::TapLayer(_, value) => *value,
         }
     }
 }

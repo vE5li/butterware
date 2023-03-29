@@ -109,7 +109,7 @@ where
         }
     }
 
-    pub fn active_layer_index(&self) -> usize {
+    pub fn current_layer_index(&self) -> usize {
         self.active_layers.last().map(|layer| layer.layer_index).unwrap_or(0)
     }
 

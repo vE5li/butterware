@@ -29,6 +29,9 @@ where
     // 32768 Ticks per second on the nice!nano. 100 Ticks is around 3 milliseconds.
     const DEBOUNCE_TICKS: u64 = 100;
 
+    // 32768 Ticks per second on the nice!nano. 5000 Ticks is around 150 milliseconds.
+    const TAP_TIME: u64 = 5000;
+
     fn new() -> Self;
 
     fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }>;
