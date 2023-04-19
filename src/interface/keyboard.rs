@@ -1,4 +1,5 @@
 use embassy_nrf::Peripherals;
+use nrf_softdevice::ble::{Address, AddressType};
 
 use crate::hardware::ScanPinConfig;
 use crate::keys::Mapping;
@@ -25,6 +26,10 @@ where
     const MATRIX: [usize; Self::COLUMNS * Self::ROWS];
 
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS]];
+
+    const LEFT_ADDRESS: Address = Address::new(AddressType::Public, [6, 2, 3, 4, 5, 9]);
+    const RIGHT_ADDRESS: Address = Address::new(AddressType::Public, [7, 2, 3, 4, 5, 9]);
+    const ADDRESS: Address = Address::new(AddressType::Public, [8, 2, 3, 4, 5, 9]);
 
     // 32768 Ticks per second on the nice!nano. 100 Ticks is around 3 milliseconds.
     const DEBOUNCE_TICKS: u64 = 100;

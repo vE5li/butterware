@@ -1,3 +1,4 @@
+SIDE = left
 CHANNEL = debug
 KEYBOARD = meboard
 DIRECTORY := target/thumbv7em-none-eabihf/${CHANNEL}
@@ -9,9 +10,9 @@ clean:
 
 compile:
 ifeq (${CHANNEL}, "release")
-	cargo build --no-default-features --features=${KEYBOARD} --release
+	DEFMT_LOG="trace" cargo build --no-default-features --features="${KEYBOARD} ${SIDE}" --release
 else
-	cargo build --no-default-features --features=${KEYBOARD}
+	DEFMT_LOG="trace" cargo build --no-default-features --features="${KEYBOARD} ${SIDE}"
 endif
 
 binary:

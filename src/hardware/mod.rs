@@ -1,5 +1,5 @@
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
-use embassy_nrf::peripherals::SPI3;
+use embassy_nrf::peripherals::{SPI3, SPI2, TWISPI1};
 use embassy_nrf::spim::{Config, Spim};
 
 use self::debounce::DebouncedKey;
@@ -15,11 +15,27 @@ pub struct SpiConfig {
     pub mosi_pin: AnyPin,
 }
 
+pub struct Spi2Config {
+    pub interface: SPI2,
+    pub interrupt: embassy_nrf::interrupt::SPIM2_SPIS2_SPI2,
+    pub clock_pin: AnyPin,
+    pub mosi_pin: AnyPin,
+}
+
+pub struct Spi1Config {
+    pub interface: TWISPI1,
+    pub interrupt: embassy_nrf::interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
+    pub clock_pin: AnyPin,
+    pub mosi_pin: AnyPin,
+}
+
 pub struct ScanPinConfig<const C: usize, const R: usize> {
     pub columns: [AnyPin; C],
     pub rows: [AnyPin; R],
     pub power_pin: Option<AnyPin>,
     pub spi_config: Option<SpiConfig>,
+    pub spi_2_config: Option<Spi2Config>,
+    pub spi_1_config: Option<Spi1Config>,
 }
 
 impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
@@ -54,11 +70,41 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
             )
         });
 
+        // FIX: fix colliding names
+        let mut config_foo = Config::default();
+        config_foo.frequency = embassy_nrf::spim::Frequency::M8;
+
+        let spi_2 = self.spi_2_config.map(|config| {
+            Spim::new_txonly(
+                config.interface,
+                config.interrupt,
+                config.clock_pin,
+                config.mosi_pin,
+                config_foo,
+            )
+        });
+
+        // FIX: fix colliding names
+        let mut config_foo = Config::default();
+        config_foo.frequency = embassy_nrf::spim::Frequency::M8;
+
+        let spi_1 = self.spi_1_config.map(|config| {
+            Spim::new_txonly(
+                config.interface,
+                config.interrupt,
+                config.clock_pin,
+                config.mosi_pin,
+                config_foo,
+            )
+        });
+
         ScanPins {
             columns,
             rows,
             power_pin,
             spi,
+            spi_2,
+            spi_1,
         }
     }
 }
@@ -68,6 +114,8 @@ pub struct ScanPins<'a, const C: usize, const R: usize> {
     pub rows: [Input<'a, AnyPin>; R],
     pub power_pin: Option<Output<'a, AnyPin>>,
     pub spi: Option<Spim<'a, SPI3>>,
+    pub spi_2: Option<Spim<'a, SPI2>>,
+    pub spi_1: Option<Spim<'a, TWISPI1>>,
 }
 
 #[derive(Debug)]
