@@ -8,6 +8,7 @@
 #![allow(incomplete_features)]
 
 use core::cell::UnsafeCell;
+use core::convert::Infallible;
 use core::ops::ControlFlow;
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -21,9 +22,9 @@ use embassy_time::driver::now;
 use embassy_time::{Duration, Timer};
 use futures::future::{select, Either};
 use futures::pin_mut;
-use hardware::ScanPins;
+use hardware::{DebouncedKey, ScanPins};
 use keys::Mapping;
-use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, AddressType};
+use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, AddressType, Connection};
 use nrf_softdevice::{random_bytes, raw, Softdevice};
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -79,6 +80,7 @@ impl TestBit for u64 {
     }
 }
 
+// TODO: maybe use embassy::nrf::rng instead?
 async fn generate_random_u32(softdevice: &Softdevice) -> u32 {
     loop {
         let mut count = 0u8;
@@ -115,7 +117,24 @@ struct MasterServer {
     master_service: MasterService,
 }
 
-async fn advertise_determine_master(softdevice: &Softdevice, server: MasterServer, adv_data: &[u8], scan_data: &[u8]) -> bool {
+#[nrf_softdevice::gatt_client(uuid = "c78c4d70-e02d-11ed-b5ea-0242ac120002")]
+struct KeyStateServiceClient {
+    #[characteristic(uuid = "d8004dfa-e02d-11ed-b5ea-0242ac120002", write)]
+    key_state: u64,
+}
+
+#[nrf_softdevice::gatt_service(uuid = "c78c4d70-e02d-11ed-b5ea-0242ac120002")]
+struct KeyStateService {
+    #[characteristic(uuid = "d8004dfa-e02d-11ed-b5ea-0242ac120002", write)]
+    key_state: u64,
+}
+
+#[nrf_softdevice::gatt_server]
+struct KeyStateServer {
+    key_state_service: KeyStateService,
+}
+
+async fn advertise_determine_master(softdevice: &Softdevice, server: &MasterServer, adv_data: &[u8], scan_data: &[u8]) -> bool {
     let config = peripheral::Config::default();
     let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
 
@@ -130,7 +149,7 @@ async fn advertise_determine_master(softdevice: &Softdevice, server: MasterServe
     defmt::debug!("random number is {}", random_number);
 
     let mut is_master = false;
-    let _ = gatt_server::run(&connection, &server, |event| match event {
+    let _ = gatt_server::run(&connection, server, |event| match event {
         MasterServerEvent::MasterService(event) => match event {
             MasterServiceEvent::OtherRandomNumberWrite(other_random_number) => {
                 // Determine which side is the master based on our random numbers.
@@ -172,263 +191,64 @@ async fn connect_determine_master(softdevice: &Softdevice, address: &Address) ->
     !defmt::unwrap!(client.is_master_read().await)
 }
 
-async fn do_slave<'a>(softdevice: &Softdevice, mut pins: ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>, address: &Address) -> ! {
+async fn do_slave<'a>(
+    softdevice: &Softdevice,
+    pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
+    address: &Address,
+) -> Result<Infallible, HalfDisconnected> {
     let addresses = [address];
     let mut config = central::ConnectConfig::default();
     config.scan_config.whitelist = Some(&addresses);
+    config.conn_params.min_conn_interval = 6;
+    config.conn_params.max_conn_interval = 6;
 
-    let mut keyboard_state = KeyboardState::<Used>::new();
+    let mut keyboard_state = SlaveState::<Used>::new();
 
     defmt::debug!("stating slave");
 
-    let connection = defmt::unwrap!(central::connect(softdevice, &config).await);
-    //let client: BatteryServiceClient =
-    // defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&
-    // connection). await);
+    let master_connection = defmt::unwrap!(central::connect(softdevice, &config).await);
+    let client: KeyStateServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&master_connection).await);
 
-    defmt::warn!("connected");
+    defmt::info!("connected to other half");
 
-    loop {
-        let key_state = do_scan_slave(&mut keyboard_state, &mut pins).await;
-        defmt::info!("key_state: {:b}", key_state);
-
-        //if set_input_value().is_err()
-        if false {
-            break;
-        }
-    }
-
-    panic!("disconnected");
+    use_slave(&mut keyboard_state, pins, client).await
 }
 
 async fn do_master<'a>(
     softdevice: &Softdevice,
-    server: Server<'a>,
+    server: &Server<'a>,
+    key_state_server: &KeyStateServer,
+    bonder: &'static Bonder,
     adv_data: &[u8],
     scan_data: &[u8],
-    mut pins: ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
-) -> ! {
+    pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
+) -> Result<Infallible, HalfDisconnected> {
     defmt::debug!("stating master");
 
     // Connect to the other half
     let config = peripheral::Config::default();
     let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
-    let connection = defmt::unwrap!(peripheral::advertise_connectable(softdevice, adv, &config).await);
+    let slave_connection = defmt::unwrap!(peripheral::advertise_connectable(softdevice, adv, &config).await);
 
     defmt::info!("connected to other half");
 
     // Set unified address.
     set_address(softdevice, &Used::ADDRESS);
 
-    static BONDER: StaticCell<Bonder> = StaticCell::new();
-    let bonder = BONDER.init(Bonder::default());
-
-    let mut keyboard_state = KeyboardState::<Used>::new();
+    let mut keyboard_state = MasterState::<Used>::new();
 
     loop {
         // Advertise
         let config = peripheral::Config::default();
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
-        let connection = defmt::unwrap!(peripheral::advertise_pairable(softdevice, adv, &config, bonder).await);
+        let host_connection = defmt::unwrap!(peripheral::advertise_pairable(softdevice, adv, &config, bonder).await);
 
         defmt::warn!("connected");
 
-        // Create future that will run as long as the connection is running.
-        let run_future = gatt_server::run(&connection, &server, |event| {
-            defmt::debug!("Event: {:?}", event);
-        });
-        pin_mut!(run_future);
-
-        loop {
-            let scan_future = do_scan_master(&mut keyboard_state, &mut pins);
-            pin_mut!(scan_future);
-
-            match select(run_future, scan_future).await {
-                Either::Left((result, _)) => {
-                    if let Err(error) = result {
-                        defmt::debug!("gatt_server run exited with error: {:?}", error);
-                    }
-
-                    break;
-                }
-                Either::Right(((active_layer, key_state), passed_run_future)) => {
-                    server.send_input_report::<Used>(&connection, active_layer, key_state);
-                    run_future = passed_run_future;
-                }
-            }
-        }
+        // Run until the host disconnects.
+        use_master(&mut keyboard_state, pins, server, key_state_server, &slave_connection, &host_connection).await?;
     }
 }
-
-async fn do_scan_master<'a>(
-    keyboard_state: &mut KeyboardState<Used>,
-    pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
-) -> (usize, u64) {
-    loop {
-        // TEMP
-        let mut key_state = 0;
-        let mut offset = 0;
-
-        for (column_index, column) in pins.columns.iter_mut().enumerate() {
-            column.set_high();
-
-            for (row_index, row) in pins.rows.iter().enumerate() {
-                let raw_state = row.is_high();
-                keyboard_state.keys[column_index][row_index].update(raw_state);
-
-                key_state |= (keyboard_state.keys[column_index][row_index].is_down() as u64) << offset;
-                offset += 1;
-            }
-
-            column.set_low();
-        }
-
-        let mut inject_mask = 0;
-
-        // Try to pop layers
-        while let Some(active_layer) = keyboard_state.active_layers.last() {
-            let key_index = active_layer.key_index;
-
-            match key_state.test_bit(key_index) {
-                true => break,
-                false => {
-                    // Check if we want to execute the tap action for this layer (if
-                    // present).
-                    if matches!(active_layer.tap_timer, Some(time) if now() - time < Used::TAP_TIME) {
-                        inject_mask.set_bit(key_index);
-                    }
-
-                    keyboard_state.active_layers.pop();
-
-                    // We lock all keys except the layer keys. This avoids
-                    // cases where we leave a layer while holding a key and we
-                    // send the key again but from the lower layer.
-                    keyboard_state.lock_keys();
-
-                    // Add layer key to the mask again (re-enable the key).
-                    keyboard_state.state_mask.set_bit(key_index);
-
-                    // For now we unset all non-layer keys so we don't get any key
-                    // presses form the current layer.
-                    key_state &= !keyboard_state.state_mask;
-                }
-            }
-        }
-
-        // Ignore all keys that are held as part of a layer.
-        key_state &= keyboard_state.state_mask;
-
-        if key_state | inject_mask != keyboard_state.previous_key_state {
-            // FIX: unclear what happens if we press multiple layer keys on the same
-            // event
-
-            let active_layer = Used::LAYER_LOOKUP[keyboard_state.current_layer_index()];
-
-            for key_index in 0..Used::COLUMNS * Used::ROWS {
-                // Get layer index and optional tap key.
-                let (layer_index, tap_timer) = match active_layer[Used::MATRIX[key_index]] {
-                    Mapping::Key(..) => continue,
-                    Mapping::Layer(layer_index) => (layer_index, None),
-                    Mapping::TapLayer(layer_index, _) => (layer_index, Some(now())),
-                };
-
-                // Make sure that the same layer is not pushed twice in a row
-                if key_state.test_bit(key_index) {
-                    // If we already have an active layer, we set it's timer to `None` to prevent
-                    // the tap action from executing if both layer
-                    // keys are released quickly.
-                    if let Some(active_layer) = keyboard_state.active_layers.last_mut() {
-                        active_layer.tap_timer = None;
-                    }
-
-                    let new_active_layer = ActiveLayer {
-                        layer_index,
-                        key_index,
-                        tap_timer,
-                    };
-
-                    keyboard_state
-                        .active_layers
-                        .push(new_active_layer)
-                        .expect("Active layer limit reached");
-
-                    // Remove the key from the state mask (disable the key). This
-                    // helps cut down on expensive updates and also ensures that we
-                    // don't get any modifier keys in send_input_report.
-                    keyboard_state.state_mask.clear_bit(key_index);
-
-                    // We lock all keys except the layer keys. This avoids
-                    // cases where we enter a layer while holding a key and we
-                    // send the key again but from the new layer.
-                    keyboard_state.lock_keys();
-
-                    // For now we just set the entire key_state to 0
-                    key_state = 0;
-                }
-            }
-
-            // If the key state is not zero, that there is at least one non-layer
-            // button pressed, since layer keys are masked out.
-            if key_state != 0 {
-                // If a regular key is pressed and there is an active layer, we set it's timer
-                // to `None` to prevent the tap action from
-                // executing if the layer key is released quickly.
-                if let Some(active_layer) = keyboard_state.active_layers.last_mut() {
-                    active_layer.tap_timer = None;
-                }
-            }
-
-            // Inject key press from tap actions. Only a single bit should be set.
-            key_state |= inject_mask;
-
-            // Since we might have altered the key state we check again if it changed
-            // to avoid sending the same input report multiple times.
-            if key_state != keyboard_state.previous_key_state {
-                // We save the state after potentially injecting an additional key press, since
-                // that will cause the next scan to update again, releasing the key on the host.
-                keyboard_state.previous_key_state = key_state;
-
-                return (keyboard_state.current_layer_index(), key_state);
-            }
-        }
-
-        Timer::after(Duration::from_millis(1)).await;
-    }
-}
-
-async fn do_scan_slave<'a>(keyboard_state: &mut KeyboardState<Used>, pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>) -> u64 {
-    loop {
-        // TEMP
-        let mut key_state = 0;
-        let mut offset = 0;
-
-        for (column_index, column) in pins.columns.iter_mut().enumerate() {
-            column.set_high();
-
-            for (row_index, row) in pins.rows.iter().enumerate() {
-                let raw_state = row.is_high();
-                keyboard_state.keys[column_index][row_index].update(raw_state);
-
-                key_state |= (keyboard_state.keys[column_index][row_index].is_down() as u64) << offset;
-                offset += 1;
-            }
-
-            column.set_low();
-        }
-
-        if key_state != keyboard_state.previous_key_state {
-            // We save the state after potentially injecting an additional key press, since
-            // that will cause the next scan to update again, releasing the key on the host.
-            keyboard_state.previous_key_state = key_state;
-
-            return key_state;
-        }
-
-        Timer::after(Duration::from_millis(1)).await;
-    }
-}
-
-// REE
 
 trait KeyState<K>
 where
@@ -452,6 +272,7 @@ where
     pub active_layers: heapless::Vec<ActiveLayer, { K::MAXIMUM_ACTIVE_LAYERS }>,
     pub keys: [[hardware::DebouncedKey<K>; K::ROWS]; K::COLUMNS],
     pub previous_key_state: u64,
+    pub previous_raw_state: u64,
     pub state_mask: u64,
 }
 
@@ -467,9 +288,157 @@ where
     }
 
     fn compare_update(&mut self, new_state: u64) -> bool {
-        let changed = self.previous_key_state != new_state;
-        self.previous_key_state = new_state;
+        let changed = self.previous_raw_state != new_state;
+        self.previous_raw_state = new_state;
         changed
+    }
+}
+
+impl<K> MasterState<K>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    const DEFAULT_KEY: DebouncedKey<K> = DebouncedKey::new();
+    const DEFAULT_ROW: [DebouncedKey<K>; K::ROWS] = [Self::DEFAULT_KEY; K::ROWS];
+
+    pub const fn new() -> Self {
+        Self {
+            active_layers: heapless::Vec::new(),
+            keys: [Self::DEFAULT_ROW; K::COLUMNS],
+            previous_key_state: 0,
+            previous_raw_state: 0,
+            state_mask: !0,
+        }
+    }
+
+    pub fn current_layer_index(&self) -> usize {
+        self.active_layers.last().map(|layer| layer.layer_index).unwrap_or(0)
+    }
+
+    pub fn lock_keys(&mut self) {
+        for column in 0..K::COLUMNS {
+            for row in 0..K::ROWS {
+                let key_index = column * K::ROWS + row;
+
+                // Only disable keys that are not part of a hold layer.
+                if self.state_mask.test_bit(key_index) {
+                    self.keys[column][row].lock();
+                }
+            }
+        }
+    }
+
+    pub fn apply(&mut self, mut key_state: u64) -> Option<(usize, u64)> {
+        let mut inject_mask = 0;
+
+        // Try to pop layers
+        while let Some(active_layer) = self.active_layers.last() {
+            let key_index = active_layer.key_index;
+
+            match key_state.test_bit(key_index) {
+                true => break,
+                false => {
+                    // Check if we want to execute the tap action for this layer (if
+                    // present).
+                    if matches!(active_layer.tap_timer, Some(time) if now() - time < Used::TAP_TIME) {
+                        inject_mask.set_bit(key_index);
+                    }
+
+                    self.active_layers.pop();
+
+                    // We lock all keys except the layer keys. This avoids
+                    // cases where we leave a layer while holding a key and we
+                    // send the key again but from the lower layer.
+                    self.lock_keys();
+
+                    // Add layer key to the mask again (re-enable the key).
+                    self.state_mask.set_bit(key_index);
+
+                    // For now we unset all non-layer keys so we don't get any key
+                    // presses form the current layer.
+                    key_state &= !self.state_mask;
+                }
+            }
+        }
+
+        // Ignore all keys that are held as part of a layer.
+        key_state &= self.state_mask;
+
+        if key_state | inject_mask != self.previous_key_state {
+            // FIX: unclear what happens if we press multiple layer keys on the same
+            // event
+
+            let active_layer = Used::LAYER_LOOKUP[self.current_layer_index()];
+
+            for key_index in 0..Used::COLUMNS * Used::ROWS {
+                // Get layer index and optional tap key.
+                let (layer_index, tap_timer) = match active_layer[Used::MATRIX[key_index]] {
+                    Mapping::Key(..) => continue,
+                    Mapping::Layer(layer_index) => (layer_index, None),
+                    Mapping::TapLayer(layer_index, _) => (layer_index, Some(now())),
+                };
+
+                // Make sure that the same layer is not pushed twice in a row
+                if key_state.test_bit(key_index) {
+                    // If we already have an active layer, we set it's timer to `None` to prevent
+                    // the tap action from executing if both layer
+                    // keys are released quickly.
+                    if let Some(active_layer) = self.active_layers.last_mut() {
+                        active_layer.tap_timer = None;
+                    }
+
+                    let new_active_layer = ActiveLayer {
+                        layer_index,
+                        key_index,
+                        tap_timer,
+                    };
+
+                    self.active_layers.push(new_active_layer).expect("Active layer limit reached");
+
+                    // Remove the key from the state mask (disable the key). This
+                    // helps cut down on expensive updates and also ensures that we
+                    // don't get any modifier keys in send_input_report.
+                    self.state_mask.clear_bit(key_index);
+
+                    // We lock all keys except the layer keys. This avoids
+                    // cases where we enter a layer while holding a key and we
+                    // send the key again but from the new layer.
+                    self.lock_keys();
+
+                    // For now we just set the entire key_state to 0
+                    key_state = 0;
+                }
+            }
+
+            // If the key state is not zero, that there is at least one non-layer
+            // button pressed, since layer keys are masked out.
+            if key_state != 0 {
+                // If a regular key is pressed and there is an active layer, we set it's timer
+                // to `None` to prevent the tap action from
+                // executing if the layer key is released quickly.
+                if let Some(active_layer) = self.active_layers.last_mut() {
+                    active_layer.tap_timer = None;
+                }
+            }
+
+            // Inject key press from tap actions. Only a single bit should be set.
+            key_state |= inject_mask;
+
+            // Since we might have altered the key state we check again if it changed
+            // to avoid sending the same input report multiple times.
+            if key_state != self.previous_key_state {
+                // We save the state after potentially injecting an additional key press, since
+                // that will cause the next scan to update again, releasing the key on the host.
+                self.previous_key_state = key_state;
+
+                return Some((self.current_layer_index(), key_state));
+            }
+        }
+
+        None
     }
 }
 
@@ -499,6 +468,24 @@ where
         let changed = self.previous_key_state != new_state;
         self.previous_key_state = new_state;
         changed
+    }
+}
+
+impl<K> SlaveState<K>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    const DEFAULT_KEY: DebouncedKey<K> = DebouncedKey::new();
+    const DEFAULT_ROW: [DebouncedKey<K>; K::ROWS] = [Self::DEFAULT_KEY; K::ROWS];
+
+    pub const fn new() -> Self {
+        Self {
+            keys: [Self::DEFAULT_ROW; K::COLUMNS],
+            previous_key_state: 0,
+        }
     }
 }
 
@@ -538,7 +525,11 @@ where
 struct HalfDisconnected;
 
 // TODO: rename function
-async fn use_slave<'a, K>(state: &mut SlaveState<K>, pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>) -> Result<(), HalfDisconnected>
+async fn use_slave<'a, K>(
+    state: &mut SlaveState<K>,
+    pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
+    client: KeyStateServiceClient,
+) -> Result<Infallible, HalfDisconnected>
 where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
@@ -551,40 +542,53 @@ where
         let raw_state = do_scan(state, pins).await;
 
         // Update the key state on the master.
-        server.key_state_set(raw_state).await;
+        defmt::info!("started to write");
+        defmt::unwrap!(client.key_state_write(&raw_state).await);
+        defmt::info!("done writing");
     }
 }
 
 // TODO: rename function
-async fn use_master<'a, K>(state: &mut MasterState<K>, pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>) -> Result<(), HalfDisconnected>
+async fn use_master<'a, K>(
+    state: &mut MasterState<K>,
+    pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
+    server: &Server<'_>,
+    key_state_server: &KeyStateServer,
+    slave_connection: &Connection,
+    host_connection: &Connection,
+) -> Result<(), HalfDisconnected>
 where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS]:,
 {
-    let host_future = gatt_server::run(&connection, &server, |_| {});
+    let host_future = gatt_server::run(host_connection, server, |_| {});
     pin_mut!(host_future);
 
     loop {
         let inner_future = async {
             loop {
-                // Create futures.
-                let scan_future = do_scan(state, pins);
-                let slave_future = gatt_server::run_with_stop(&conn, &server, |event| match event {
-                    ServerEvent::Slave(event) => match event {
-                        SlaveServiceEvent::StateWrite(key_state) => ControlFlow::Break(key_state),
-                    },
-                });
+                let key_state = {
+                    // Create futures.
+                    let scan_future = do_scan(state, pins);
+                    let slave_future = gatt_server::run_until(slave_connection, key_state_server, |event| match event {
+                        KeyStateServerEvent::KeyStateService(event) => match event {
+                            KeyStateServiceEvent::KeyStateWrite(key_state) => ControlFlow::Break(key_state),
+                        },
+                    });
 
-                // Pin futures so we can call select on them.
-                pin_mut!(scan_future);
-                pin_mut!(slave_future);
+                    // Pin futures so we can call select on them.
+                    pin_mut!(scan_future);
+                    pin_mut!(slave_future);
 
-                let key_state = match select(scan_future, slave_future).await {
-                    Either::Left((key_state, _)) => key_state,
-                    Either::Right((_, key_state)) => key_state.map_err(|_| HalfDisconnected)?,
+                    match select(scan_future, slave_future).await {
+                        Either::Left((key_state, _)) => key_state,
+                        Either::Right((key_state, _)) => key_state.map_err(|_| HalfDisconnected)?,
+                    }
                 };
+
+                defmt::info!("{:b}", key_state);
 
                 if let Some(output_state) = state.apply(key_state) {
                     return Ok(output_state);
@@ -601,29 +605,13 @@ where
             Either::Right((result, passed_host_future)) => {
                 let (active_layer, key_state) = result?;
 
-                server.send_input_report::<K>(&connection, active_layer, key_state);
+                server.send_input_report::<K>(&host_connection, active_layer, key_state);
 
                 host_future = passed_host_future;
             }
         }
     }
 }
-
-//
-
-/*async fn run_all() {
-    let mutex = todo!();
-
-    let first = run_client(&mutex);
-    let second = run_client(&mutex);
-}
-
-async fn run_client(mutex: &Mutex) {
-    loop {
-        mutex.lock().await;
-        // Advertise data
-    }
-}*/
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) {
@@ -641,7 +629,7 @@ async fn main(spawner: Spawner) -> ! {
     let peripherals = embassy_nrf::init(config);
 
     let mut meboard = Used::new();
-    let pins = meboard.init_peripherals(peripherals).to_pins();
+    let mut pins = meboard.init_peripherals(peripherals).to_pins();
 
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
@@ -673,12 +661,14 @@ async fn main(spawner: Spawner) -> ! {
         ..Default::default()
     };
 
-    let sd = Softdevice::enable(&config);
-    let mut server = defmt::unwrap!(Server::new(sd));
+    let softdevice = Softdevice::enable(&config);
+    let mut server = defmt::unwrap!(Server::new(softdevice));
+    // TODO: move this into the other thing too
+    let key_state_server = defmt::unwrap!(KeyStateServer::new(softdevice));
     #[cfg(feature = "left")]
-    let master_server = defmt::unwrap!(MasterServer::new(sd));
-    server.set_softdevice(sd);
-    defmt::unwrap!(spawner.spawn(softdevice_task(sd)));
+    let master_server = defmt::unwrap!(MasterServer::new(softdevice));
+    server.set_softdevice(softdevice);
+    defmt::unwrap!(spawner.spawn(softdevice_task(softdevice)));
 
     const ADVERTISING_DATA: AdvertisingData = AdvertisingData::new()
         .add_flags(raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8)
@@ -691,645 +681,41 @@ async fn main(spawner: Spawner) -> ! {
         0x03, 0x03, 0x09, 0x18,
     ];
 
-    // Set a well-defined address that the other half can connect to.
-    #[cfg(feature = "left")]
-    set_address(sd, &Used::LEFT_ADDRESS);
-    #[cfg(feature = "right")]
-    set_address(sd, &Used::RIGHT_ADDRESS);
-
-    // Both sides will connect, initially with the left side as the server and the
-    // right as peripheral. Afterwards the will randomly determine which side is the
-    // master and drop the connection again.
-    #[cfg(feature = "left")]
-    let is_master = advertise_determine_master(sd, master_server, ADVERTISING_DATA.get_slice(), scan_data).await;
-    #[cfg(feature = "right")]
-    let is_master = connect_determine_master(sd, &Used::LEFT_ADDRESS).await;
-
-    defmt::debug!("is master: {}", is_master);
-
-    match is_master {
-        true => do_master(sd, server, ADVERTISING_DATA.get_slice(), scan_data, pins).await,
-        false => {
-            #[cfg(feature = "left")]
-            const MASTER_ADDRESS: Address = Used::RIGHT_ADDRESS;
-            #[cfg(feature = "right")]
-            const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
-
-            do_slave(sd, pins, &MASTER_ADDRESS).await;
-        }
-    }
-
-    /*
-    // Using this new information we can establish a new connection with the slave side as the
-    // server and the master as peripheral.
-    let connection = match is_master {
-        true => connect_as_server().await,
-        false => connect_as_peripheral().await,
-    };
-
-    /*let config = central::ScanConfig::default();
-    let res = central::scan(sd, &config, |params| unsafe {
-        defmt::info!("AdvReport!");
-        defmt::info!(
-            "type: connectable={} scannable={} directed={} scan_response={} extended_pdu={} status={}",
-            params.type_.connectable(),
-            params.type_.scannable(),
-            params.type_.directed(),
-            params.type_.scan_response(),
-            params.type_.extended_pdu(),
-            params.type_.status()
-        );
-        defmt::info!(
-            "addr: resolved={} type={} addr={:x}",
-            params.peer_addr.addr_id_peer(),
-            params.peer_addr.addr_type(),
-            params.peer_addr.addr
-        );
-        None
-    })
-    .await;
-    defmt::unwrap!(res);
-    defmt::info!("scan returned");*/
-
-    // TEST
-    #[cfg(feature = "master")]
-    let conn = {
-        let addrs = &[&nrf_softdevice::ble::Address::new(
-            nrf_softdevice::ble::AddressType::RandomStatic,
-            [0x49, 0xBD, 0x1F, 0x9E, 0x08, 0xD7],
-        )];
-
-        let mut config = central::ConnectConfig::default();
-        config.scan_config.whitelist = Some(addrs);
-        defmt::unwrap!(central::connect(sd, &config).await)
-    };
-
-    #[cfg(feature = "master")]
-    let client: BatteryServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&conn).await);
-
-    // Once the connection with the other half is established we want to randomly
-    // choose a master. The master then changes it's device address to a
-    // pre-defined address. That way the computer can connect to either side as
-    // if it was the same.
-    // NOTE: This also means we have to have the keys needed
-    // to re-establish a connection on both sides of the keyboard.
-    set_address(sd, &ADDRESS);*/
-
-    /*if is_master {
-        if let Some(spi) = &mut pins.spi {
-            spi.write(&[
-                //green (0)
-                0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                // red (255)
-                0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                // blue (255)
-                0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            ])
-            .await
-            .unwrap();
-
-            Timer::after(Duration::from_micros(60)).await;
-
-            spi.write(&[
-                //green (0)
-                0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                // red (255)
-                0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                // blue (255)
-                0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            ])
-            .await
-            .unwrap();
-        }
-    }
-
-    // THIS ONE IS BGR
-    if let Some(spi) = &mut pins.spi_2 {
-        spi.write(&[
-            // 3x red
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // 3x green
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // 3x blue
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // 3x red
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // 3x green
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // 3x blue
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-        ])
-        .await
-        .unwrap();
-    }
-
-    // THIS ONE IS BGR
-    if let Some(spi) = &mut pins.spi_1 {
-        spi.write(&[
-            // 3x red
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // 3x green
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // 3x blue
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // 3x red
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // 3x green
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // 3x blue
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11111100, 0b01111110, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-        ])
-        .await
-        .unwrap();
-    }
+    static BONDER: StaticCell<Bonder> = StaticCell::new();
+    let bonder = BONDER.init(Bonder::default());
 
     loop {
-        // Advertise
-        let config = peripheral::Config::default();
-        let adv = peripheral::ConnectableAdvertisement::ScannableUndirected {
-            adv_data: ADVERTISING_DATA.get_slice(),
-            scan_data,
+        // Set a well-defined address that the other half can connect to.
+        #[cfg(feature = "left")]
+        set_address(softdevice, &Used::LEFT_ADDRESS);
+        #[cfg(feature = "right")]
+        set_address(softdevice, &Used::RIGHT_ADDRESS);
+
+        // Both sides will connect, initially with the left side as the server and the
+        // right as peripheral. Afterwards the will randomly determine which side is the
+        // master and drop the connection again.
+        #[cfg(feature = "left")]
+        let is_master = advertise_determine_master(softdevice, &master_server, ADVERTISING_DATA.get_slice(), scan_data).await;
+        #[cfg(feature = "right")]
+        let is_master = connect_determine_master(softdevice, &Used::LEFT_ADDRESS).await;
+
+        defmt::debug!("is master: {}", is_master);
+
+        match is_master {
+            true => do_master(softdevice, &server, &key_state_server, bonder, ADVERTISING_DATA.get_slice(), scan_data, &mut pins).await,
+            false => {
+                #[cfg(feature = "left")]
+                const MASTER_ADDRESS: Address = Used::RIGHT_ADDRESS;
+                #[cfg(feature = "right")]
+                const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
+
+                do_slave(softdevice, &mut pins, &MASTER_ADDRESS).await
+            }
         };
-        let connection = defmt::unwrap!(peripheral::advertise_pairable(sd, adv, &config, bonder).await);
 
-        #[cfg(not(feature = "master"))]
-        {
-            if let Some(spi) = &mut pins.spi {
-                spi.write(&[
-                    // 3x red
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // 3x green
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // 3x blue
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                ])
-                .await
-                .unwrap();
-            }
-        }
+        defmt::error!("halves disconnected");
 
-        // Create future that will run as long as the connection is running
-        let run_future = gatt_server::run(&connection, &server, |event| {
-            defmt::debug!("Event: {:?}", event);
-        });
-        pin_mut!(run_future);
-
-        loop {
-            let timer_future = Timer::after(Duration::from_millis(1));
-            pin_mut!(timer_future);
-
-            match select(run_future, timer_future).await {
-                Either::Left((result, _)) => {
-                    if let Err(error) = result {
-                        defmt::debug!("gatt_server run exited with error: {:?}", error);
-                    }
-
-                    break;
-                }
-                Either::Right((_, passed_run_future)) => {
-                    // we want to write red 255, green 0, blue 255
-                    // => 11111111 00000000 11111111
-                    // => 110*8 100*8 110*8
-                    // => 111111000*8 111000000*8 111111000*8
-
-                    // TEMP
-                    let mut key_state = 0;
-                    let mut offset = 0;
-
-                    for (column_index, column) in pins.columns.iter_mut().enumerate() {
-                        column.set_high();
-
-                        for (row_index, row) in pins.rows.iter().enumerate() {
-                            let raw_state = row.is_high();
-                            keyboard_state.keys[column_index][row_index].update(raw_state);
-
-                            key_state |= (keyboard_state.keys[column_index][row_index].is_down() as u64) << offset;
-                            offset += 1;
-                        }
-
-                        column.set_low();
-                    }
-
-                    let mut inject_mask = 0;
-
-                    // Try to pop layers
-                    while let Some(active_layer) = keyboard_state.active_layers.last() {
-                        let key_index = active_layer.key_index;
-
-                        match key_state.test_bit(key_index) {
-                            true => break,
-                            false => {
-                                // Check if we want to execute the tap action for this layer (if
-                                // present).
-                                if matches!(active_layer.tap_timer, Some(time) if now() - time < Used::TAP_TIME) {
-                                    inject_mask.set_bit(key_index);
-                                }
-
-                                keyboard_state.active_layers.pop();
-
-                                // We lock all keys except the layer keys. This avoids
-                                // cases where we leave a layer while holding a key and we
-                                // send the key again but from the lower layer.
-                                keyboard_state.lock_keys();
-
-                                // Add layer key to the mask again (re-enable the key).
-                                keyboard_state.state_mask.set_bit(key_index);
-
-                                // For now we unset all non-layer keys so we don't get any key
-                                // presses form the current layer.
-                                key_state &= !keyboard_state.state_mask;
-                            }
-                        }
-                    }
-
-                    // Ignore all keys that are held as part of a layer.
-                    key_state &= keyboard_state.state_mask;
-
-                    if key_state | inject_mask != keyboard_state.previous_key_state {
-                        // FIX: unclear what happens if we press multiple layer keys on the same
-                        // event
-
-                        let active_layer = Used::LAYER_LOOKUP[keyboard_state.current_layer_index()];
-
-                        for key_index in 0..Used::COLUMNS * Used::ROWS {
-                            // Get layer index and optional tap key.
-                            let (layer_index, tap_timer) = match active_layer[Used::MATRIX[key_index]] {
-                                Mapping::Key(..) => continue,
-                                Mapping::Layer(layer_index) => (layer_index, None),
-                                Mapping::TapLayer(layer_index, _) => (layer_index, Some(now())),
-                            };
-
-                            // Make sure that the same layer is not pushed twice in a row
-                            if key_state.test_bit(key_index) {
-                                // If we already have an active layer, we set it's timer to `None` to prevent
-                                // the tap action from executing if both layer
-                                // keys are released quickly.
-                                if let Some(active_layer) = keyboard_state.active_layers.last_mut() {
-                                    active_layer.tap_timer = None;
-                                }
-
-                                let new_active_layer = ActiveLayer {
-                                    layer_index,
-                                    key_index,
-                                    tap_timer,
-                                };
-
-                                keyboard_state
-                                    .active_layers
-                                    .push(new_active_layer)
-                                    .expect("Active layer limit reached");
-
-                                // Remove the key from the state mask (disable the key). This
-                                // helps cut down on expensive updates and also ensures that we
-                                // don't get any modifier keys in send_input_report.
-                                keyboard_state.state_mask.clear_bit(key_index);
-
-                                // We lock all keys except the layer keys. This avoids
-                                // cases where we enter a layer while holding a key and we
-                                // send the key again but from the new layer.
-                                keyboard_state.lock_keys();
-
-                                // For now we just set the entire key_state to 0
-                                key_state = 0;
-                            }
-                        }
-
-                        // If the key state is not zero, that there is at least one non-layer
-                        // button pressed, since layer keys are masked out.
-                        if key_state != 0 {
-                            // If a regular key is pressed and there is an active layer, we set it's timer
-                            // to `None` to prevent the tap action from
-                            // executing if the layer key is released quickly.
-                            if let Some(active_layer) = keyboard_state.active_layers.last_mut() {
-                                active_layer.tap_timer = None;
-                            }
-                        }
-
-                        // Inject key press from tap actions. Only a single bit should be set.
-                        key_state |= inject_mask;
-
-                        // Since we might have altered the key state we check again if it changed
-                        // to avoid sending the same input report multiple times.
-                        if key_state != keyboard_state.previous_key_state {
-                            // We save the state after potentially injecting an additional key press, since
-                            // that will cause the next scan to update again, releasing the key on the host.
-                            keyboard_state.previous_key_state = key_state;
-
-                            server.send_input_report::<Used>(&connection, keyboard_state.current_layer_index(), key_state);
-                        }
-                    }
-
-                    /*if key_state != 0 {
-                        spi.write(&[
-                            //green (0)
-                            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011,
-                            0b10000001, 0b11000000, // red (255)
-                            0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011,
-                            0b11110001, 0b11111000, // blue (255)
-                            0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011,
-                            0b11110001, 0b11111000,
-                        ])
-                        .await
-                        .unwrap();
-                    } else {
-                        spi.write(&[
-                            //green (0)
-                            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011,
-                            0b10000001, 0b11000000, // red (255)
-                            0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011,
-                            0b11110001, 0b11111000, // blue (255)
-                            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011,
-                            0b10000001, 0b11000000,
-                        ])
-                        .await
-                        .unwrap();
-                    }*/
-
-                    run_future = passed_run_future;
-                }
-            }
-        }
-
-        #[cfg(not(feature = "master"))]
-        {
-            if let Some(spi) = &mut pins.spi {
-                spi.write(&[
-                    //green (0)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // red (255)
-                    0b11100000, 0b01110000, 0b00111111, 0b00011111, 0b10001111, 0b11000111, 0b11100011, 0b11110001, 0b11111000,
-                    // blue (255)
-                    0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-                ])
-                .await
-                .unwrap();
-            }
-        }
-
-        /*spi.write(&[
-            //green (0)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // red (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-            // blue (255)
-            0b11100000, 0b01110000, 0b00111000, 0b00011100, 0b00001110, 0b00000111, 0b00000011, 0b10000001, 0b11000000,
-        ])
-        .await
-        .unwrap();*/
-    }*/
+        #[cfg(not(feature = "auto-reset"))]
+        run_disconnected_animation().await;
+    }
 }

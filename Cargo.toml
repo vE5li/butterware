@@ -6,6 +6,9 @@ edition = "2021"
 [features]
 left = []
 right = []
+auto-reset = []
+
+# Keyboards
 meboard = []
 default = ["meboard"]
 
