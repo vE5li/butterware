@@ -7,6 +7,8 @@
 #![feature(iter_next_chunk)]
 #![allow(incomplete_features)]
 
+use core::cell::UnsafeCell;
+use core::ops::ControlFlow;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt_rtt as _; // global logger
@@ -425,6 +427,189 @@ async fn do_scan_slave<'a>(keyboard_state: &mut KeyboardState<Used>, pins: &mut 
         Timer::after(Duration::from_millis(1)).await;
     }
 }
+
+// REE
+
+trait KeyState<K>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    fn key(&mut self, column: usize, row: usize) -> &mut hardware::DebouncedKey<K>;
+
+    fn compare_update(&mut self, new_state: u64) -> bool;
+}
+
+pub struct MasterState<K>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    pub active_layers: heapless::Vec<ActiveLayer, { K::MAXIMUM_ACTIVE_LAYERS }>,
+    pub keys: [[hardware::DebouncedKey<K>; K::ROWS]; K::COLUMNS],
+    pub previous_key_state: u64,
+    pub state_mask: u64,
+}
+
+impl<K> KeyState<K> for MasterState<K>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    fn key(&mut self, column: usize, row: usize) -> &mut hardware::DebouncedKey<K> {
+        &mut self.keys[column][row]
+    }
+
+    fn compare_update(&mut self, new_state: u64) -> bool {
+        let changed = self.previous_key_state != new_state;
+        self.previous_key_state = new_state;
+        changed
+    }
+}
+
+pub struct SlaveState<K>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    pub keys: [[hardware::DebouncedKey<K>; K::ROWS]; K::COLUMNS],
+    pub previous_key_state: u64,
+}
+
+impl<K> KeyState<K> for SlaveState<K>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    fn key(&mut self, column: usize, row: usize) -> &mut hardware::DebouncedKey<K> {
+        &mut self.keys[column][row]
+    }
+
+    fn compare_update(&mut self, new_state: u64) -> bool {
+        let changed = self.previous_key_state != new_state;
+        self.previous_key_state = new_state;
+        changed
+    }
+}
+
+async fn do_scan<'a, K>(state: &mut impl KeyState<K>, pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>) -> u64
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    loop {
+        let mut key_state = 0;
+        let mut offset = 0;
+
+        for (column_index, column) in pins.columns.iter_mut().enumerate() {
+            column.set_high();
+
+            for (row_index, row) in pins.rows.iter().enumerate() {
+                let raw_state = row.is_high();
+                state.key(column_index, row_index).update(raw_state);
+
+                key_state |= (state.key(column_index, row_index).is_down() as u64) << offset;
+                offset += 1;
+            }
+
+            column.set_low();
+        }
+
+        if state.compare_update(key_state) {
+            return key_state;
+        }
+
+        Timer::after(Duration::from_millis(1)).await;
+    }
+}
+
+struct HalfDisconnected;
+
+// TODO: rename function
+async fn use_slave<'a, K>(state: &mut SlaveState<K>, pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>) -> Result<(), HalfDisconnected>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    loop {
+        // Returns any time there is any change in the key state. This state is already
+        // debounced.
+        let raw_state = do_scan(state, pins).await;
+
+        // Update the key state on the master.
+        server.key_state_set(raw_state).await;
+    }
+}
+
+// TODO: rename function
+async fn use_master<'a, K>(state: &mut MasterState<K>, pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>) -> Result<(), HalfDisconnected>
+where
+    K: Keyboard,
+    [(); K::NAME_LENGTH]:,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS]:,
+{
+    let host_future = gatt_server::run(&connection, &server, |_| {});
+    pin_mut!(host_future);
+
+    loop {
+        let inner_future = async {
+            loop {
+                // Create futures.
+                let scan_future = do_scan(state, pins);
+                let slave_future = gatt_server::run_with_stop(&conn, &server, |event| match event {
+                    ServerEvent::Slave(event) => match event {
+                        SlaveServiceEvent::StateWrite(key_state) => ControlFlow::Break(key_state),
+                    },
+                });
+
+                // Pin futures so we can call select on them.
+                pin_mut!(scan_future);
+                pin_mut!(slave_future);
+
+                let key_state = match select(scan_future, slave_future).await {
+                    Either::Left((key_state, _)) => key_state,
+                    Either::Right((_, key_state)) => key_state.map_err(|_| HalfDisconnected)?,
+                };
+
+                if let Some(output_state) = state.apply(key_state) {
+                    return Ok(output_state);
+                }
+            }
+        };
+        pin_mut!(inner_future);
+
+        match select(host_future, inner_future).await {
+            // Keyboard disconnected from host, so just return.
+            Either::Left(..) => return Ok(()),
+            // There is a change in the output state of the keyboard so we need to send a new input
+            // report.
+            Either::Right((result, passed_host_future)) => {
+                let (active_layer, key_state) = result?;
+
+                server.send_input_report::<K>(&connection, active_layer, key_state);
+
+                host_future = passed_host_future;
+            }
+        }
+    }
+}
+
+//
 
 /*async fn run_all() {
     let mutex = todo!();
