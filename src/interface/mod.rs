@@ -2,7 +2,7 @@ mod keyboard;
 #[macro_use]
 mod layers;
 
-pub use self::keyboard::{Keyboard, Scannable};
+pub use self::keyboard::{Keyboard, KeyboardExtension, Scannable};
 
 pub trait UnwrapInfelliable {
     type Output;

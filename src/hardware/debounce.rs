@@ -8,7 +8,7 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     last_state_change: u64,
     internal_state: bool,
@@ -22,7 +22,7 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     pub const fn new() -> Self {
         Self {

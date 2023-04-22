@@ -42,8 +42,8 @@ use ble::Server;
 use keyboards::Used;
 
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
-use crate::hardware::{ActiveLayer, KeyboardState};
-use crate::interface::{Keyboard, Scannable};
+use crate::hardware::ActiveLayer;
+use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 
 #[cfg(all(feature = "left", feature = "right"))]
 compile_error!("Only one side can be built for at a time. Try disabling either the left or right feature.");
@@ -179,7 +179,9 @@ async fn connect_determine_master(softdevice: &Softdevice, address: &Address) ->
 
     defmt::debug!("connected to other half");
 
-    let random_number = generate_random_u32(softdevice).await;
+    // FIX:
+    //let random_number = generate_random_u32(softdevice).await;
+    let random_number = !0;
 
     defmt::debug!("random number is {}", random_number);
     defmt::debug!("writing random number to the master service");
@@ -246,7 +248,15 @@ async fn do_master<'a>(
         defmt::warn!("connected");
 
         // Run until the host disconnects.
-        use_master(&mut keyboard_state, pins, server, key_state_server, &slave_connection, &host_connection).await?;
+        use_master(
+            &mut keyboard_state,
+            pins,
+            server,
+            key_state_server,
+            &slave_connection,
+            &host_connection,
+        )
+        .await?;
     }
 }
 
@@ -255,11 +265,13 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     fn key(&mut self, column: usize, row: usize) -> &mut hardware::DebouncedKey<K>;
 
-    fn compare_update(&mut self, new_state: u64) -> bool;
+    /// Update the key state and check if the external state needs to be
+    /// updated.
+    fn update_needs_synchronize(&mut self, new_state: u64) -> bool;
 }
 
 pub struct MasterState<K>
@@ -267,12 +279,13 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     pub active_layers: heapless::Vec<ActiveLayer, { K::MAXIMUM_ACTIVE_LAYERS }>,
     pub keys: [[hardware::DebouncedKey<K>; K::ROWS]; K::COLUMNS],
     pub previous_key_state: u64,
     pub previous_raw_state: u64,
+    pub slave_raw_state: u64,
     pub state_mask: u64,
 }
 
@@ -281,13 +294,13 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     fn key(&mut self, column: usize, row: usize) -> &mut hardware::DebouncedKey<K> {
         &mut self.keys[column][row]
     }
 
-    fn compare_update(&mut self, new_state: u64) -> bool {
+    fn update_needs_synchronize(&mut self, new_state: u64) -> bool {
         let changed = self.previous_raw_state != new_state;
         self.previous_raw_state = new_state;
         changed
@@ -299,7 +312,7 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     const DEFAULT_KEY: DebouncedKey<K> = DebouncedKey::new();
     const DEFAULT_ROW: [DebouncedKey<K>; K::ROWS] = [Self::DEFAULT_KEY; K::ROWS];
@@ -310,6 +323,7 @@ where
             keys: [Self::DEFAULT_ROW; K::COLUMNS],
             previous_key_state: 0,
             previous_raw_state: 0,
+            slave_raw_state: 0,
             state_mask: !0,
         }
     }
@@ -318,6 +332,7 @@ where
         self.active_layers.last().map(|layer| layer.layer_index).unwrap_or(0)
     }
 
+    // FIX: this is problematic with two sides
     pub fn lock_keys(&mut self) {
         for column in 0..K::COLUMNS {
             for row in 0..K::ROWS {
@@ -331,8 +346,8 @@ where
         }
     }
 
-    pub fn apply(&mut self, mut key_state: u64) -> Option<(usize, u64)> {
-        let mut inject_mask = 0;
+    pub fn apply(&mut self, mut key_state: u64) -> Option<(usize, u64, u64)> {
+        let mut injected_keys = 0;
 
         // Try to pop layers
         while let Some(active_layer) = self.active_layers.last() {
@@ -344,7 +359,7 @@ where
                     // Check if we want to execute the tap action for this layer (if
                     // present).
                     if matches!(active_layer.tap_timer, Some(time) if now() - time < Used::TAP_TIME) {
-                        inject_mask.set_bit(key_index);
+                        injected_keys.set_bit(key_index);
                     }
 
                     self.active_layers.pop();
@@ -352,6 +367,7 @@ where
                     // We lock all keys except the layer keys. This avoids
                     // cases where we leave a layer while holding a key and we
                     // send the key again but from the lower layer.
+                    // FIX: this is problematic with two sides
                     self.lock_keys();
 
                     // Add layer key to the mask again (re-enable the key).
@@ -367,13 +383,13 @@ where
         // Ignore all keys that are held as part of a layer.
         key_state &= self.state_mask;
 
-        if key_state | inject_mask != self.previous_key_state {
+        if key_state | injected_keys != self.previous_key_state {
             // FIX: unclear what happens if we press multiple layer keys on the same
             // event
 
             let active_layer = Used::LAYER_LOOKUP[self.current_layer_index()];
 
-            for key_index in 0..Used::COLUMNS * Used::ROWS {
+            for key_index in 0..Used::KEY_COUNT * 2 {
                 // Get layer index and optional tap key.
                 let (layer_index, tap_timer) = match active_layer[Used::MATRIX[key_index]] {
                     Mapping::Key(..) => continue,
@@ -406,6 +422,7 @@ where
                     // We lock all keys except the layer keys. This avoids
                     // cases where we enter a layer while holding a key and we
                     // send the key again but from the new layer.
+                    // FIX: this is problematic with two sides
                     self.lock_keys();
 
                     // For now we just set the entire key_state to 0
@@ -424,17 +441,12 @@ where
                 }
             }
 
-            // Inject key press from tap actions. Only a single bit should be set.
-            key_state |= inject_mask;
-
             // Since we might have altered the key state we check again if it changed
             // to avoid sending the same input report multiple times.
-            if key_state != self.previous_key_state {
-                // We save the state after potentially injecting an additional key press, since
-                // that will cause the next scan to update again, releasing the key on the host.
+            if key_state | injected_keys != self.previous_key_state {
                 self.previous_key_state = key_state;
 
-                return Some((self.current_layer_index(), key_state));
+                return Some((self.current_layer_index(), key_state, injected_keys));
             }
         }
 
@@ -447,7 +459,7 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     pub keys: [[hardware::DebouncedKey<K>; K::ROWS]; K::COLUMNS],
     pub previous_key_state: u64,
@@ -458,13 +470,13 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     fn key(&mut self, column: usize, row: usize) -> &mut hardware::DebouncedKey<K> {
         &mut self.keys[column][row]
     }
 
-    fn compare_update(&mut self, new_state: u64) -> bool {
+    fn update_needs_synchronize(&mut self, new_state: u64) -> bool {
         let changed = self.previous_key_state != new_state;
         self.previous_key_state = new_state;
         changed
@@ -476,7 +488,7 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     const DEFAULT_KEY: DebouncedKey<K> = DebouncedKey::new();
     const DEFAULT_ROW: [DebouncedKey<K>; K::ROWS] = [Self::DEFAULT_KEY; K::ROWS];
@@ -494,7 +506,7 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     loop {
         let mut key_state = 0;
@@ -514,7 +526,7 @@ where
             column.set_low();
         }
 
-        if state.compare_update(key_state) {
+        if state.update_needs_synchronize(key_state) {
             return key_state;
         }
 
@@ -534,7 +546,7 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     loop {
         // Returns any time there is any change in the key state. This state is already
@@ -561,7 +573,7 @@ where
     K: Keyboard,
     [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
 {
     let host_future = gatt_server::run(host_connection, server, |_| {});
     pin_mut!(host_future);
@@ -569,7 +581,10 @@ where
     loop {
         let inner_future = async {
             loop {
-                let key_state = {
+                let previous_raw_state = state.previous_raw_state;
+                let slave_raw_state = state.slave_raw_state;
+
+                let (key_state, slave_raw_state) = {
                     // Create futures.
                     let scan_future = do_scan(state, pins);
                     let slave_future = gatt_server::run_until(slave_connection, key_state_server, |event| match event {
@@ -583,12 +598,34 @@ where
                     pin_mut!(slave_future);
 
                     match select(scan_future, slave_future).await {
-                        Either::Left((key_state, _)) => key_state,
-                        Either::Right((key_state, _)) => key_state.map_err(|_| HalfDisconnected)?,
+                        // Master side state changed.
+                        Either::Left((key_state, _)) => {
+                            #[cfg(feature = "left")]
+                            let combined_state = slave_raw_state | (key_state << K::KEY_COUNT);
+
+                            #[cfg(feature = "right")]
+                            let combined_state = (slave_raw_state << K::KEY_COUNT) | key_state;
+
+                            (combined_state, slave_raw_state)
+                        }
+                        // Slave side state changed.
+                        Either::Right((key_state, _)) => {
+                            let key_state = key_state.map_err(|_| HalfDisconnected)?;
+
+                            #[cfg(feature = "left")]
+                            let combined_state = (previous_raw_state << K::KEY_COUNT) | key_state;
+
+                            #[cfg(feature = "right")]
+                            let combined_state = previous_raw_state | (key_state << K::KEY_COUNT);
+
+                            (combined_state, key_state)
+                        }
                     }
                 };
 
-                defmt::info!("{:b}", key_state);
+                // We do this update down here because we cannot mutably access the state inside of
+                // the scope above.
+                state.slave_raw_state = slave_raw_state;
 
                 if let Some(output_state) = state.apply(key_state) {
                     return Ok(output_state);
@@ -603,9 +640,13 @@ where
             // There is a change in the output state of the keyboard so we need to send a new input
             // report.
             Either::Right((result, passed_host_future)) => {
-                let (active_layer, key_state) = result?;
+                let (active_layer, key_state, injected_keys) = result?;
 
-                server.send_input_report::<K>(&host_connection, active_layer, key_state);
+                server.send_input_report::<K>(&host_connection, active_layer, key_state | injected_keys);
+
+                if injected_keys != 0 {
+                    server.send_input_report::<K>(&host_connection, active_layer, key_state);
+                }
 
                 host_future = passed_host_future;
             }
@@ -702,7 +743,18 @@ async fn main(spawner: Spawner) -> ! {
         defmt::debug!("is master: {}", is_master);
 
         match is_master {
-            true => do_master(softdevice, &server, &key_state_server, bonder, ADVERTISING_DATA.get_slice(), scan_data, &mut pins).await,
+            true => {
+                do_master(
+                    softdevice,
+                    &server,
+                    &key_state_server,
+                    bonder,
+                    ADVERTISING_DATA.get_slice(),
+                    scan_data,
+                    &mut pins,
+                )
+                .await
+            }
             false => {
                 #[cfg(feature = "left")]
                 const MASTER_ADDRESS: Address = Used::RIGHT_ADDRESS;

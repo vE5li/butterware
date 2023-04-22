@@ -42,7 +42,7 @@ impl<'a> Server<'a> {
         T: Keyboard,
         [(); <T as Scannable>::NAME_LENGTH]:,
         [(); <T as Scannable>::MAXIMUM_ACTIVE_LAYERS]:,
-        [(); <T as Scannable>::COLUMNS * <T as Scannable>::ROWS]:,
+        [(); <T as Scannable>::COLUMNS * <T as Scannable>::ROWS * 2]:,
     {
         self.hid_service.send_input_report::<T>(connection, active_layer, key_state);
     }

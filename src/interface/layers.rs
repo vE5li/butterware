@@ -5,7 +5,7 @@ macro_rules! register_layers {
         impl $layers {
             #[allow(unused)]
             $(pub const $names: Layer = Layer(${index()});)*
-            pub const LAYER_LOOKUP: &'static [&'static [Mapping; <$board as Scannable>::COLUMNS * <$board as Scannable>::ROWS]] = &[$(&$board::$names),*];
+            pub const LAYER_LOOKUP: &'static [&'static [Mapping; <$board as Scannable>::COLUMNS * <$board as Scannable>::ROWS * 2]] = &[$(&$board::$names),*];
         }
     };
 }

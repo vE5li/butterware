@@ -19,13 +19,13 @@ pub trait Keyboard: Scannable
 where
     [(); Self::NAME_LENGTH]:,
     [(); Self::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); Self::COLUMNS * Self::ROWS]:,
+    [(); Self::COLUMNS * Self::ROWS * 2]:,
 {
     const DEVICE_NAME: &'static [u8; Self::NAME_LENGTH];
 
-    const MATRIX: [usize; Self::COLUMNS * Self::ROWS];
+    const MATRIX: [usize; Self::COLUMNS * Self::ROWS * 2];
 
-    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS]];
+    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]];
 
     const LEFT_ADDRESS: Address = Address::new(AddressType::Public, [6, 2, 3, 4, 5, 9]);
     const RIGHT_ADDRESS: Address = Address::new(AddressType::Public, [7, 2, 3, 4, 5, 9]);
@@ -34,10 +34,24 @@ where
     // 32768 Ticks per second on the nice!nano. 100 Ticks is around 3 milliseconds.
     const DEBOUNCE_TICKS: u64 = 100;
 
-    // 32768 Ticks per second on the nice!nano. 5000 Ticks is around 150 milliseconds.
+    // 32768 Ticks per second on the nice!nano. 5000 Ticks is around 150
+    // milliseconds.
     const TAP_TIME: u64 = 5000;
 
     fn new() -> Self;
 
     fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }>;
+}
+
+pub trait KeyboardExtension {
+    const KEY_COUNT: usize;
+}
+
+impl<T: Keyboard> KeyboardExtension for T
+where
+    [(); T::NAME_LENGTH]:,
+    [(); T::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); T::COLUMNS * T::ROWS * 2]:,
+{
+    const KEY_COUNT: usize = Self::COLUMNS * Self::ROWS;
 }
