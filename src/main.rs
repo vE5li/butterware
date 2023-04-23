@@ -316,12 +316,13 @@ where
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
-    pub active_layers: heapless::Vec<ActiveLayer, { K::MAXIMUM_ACTIVE_LAYERS }>,
-    pub keys: [[hardware::DebouncedKey<K>; K::ROWS]; K::COLUMNS],
-    pub previous_key_state: u64,
-    pub previous_raw_state: u64,
-    pub slave_raw_state: u64,
-    pub state_mask: u64,
+    active_layers: heapless::Vec<ActiveLayer, { K::MAXIMUM_ACTIVE_LAYERS }>,
+    keys: [[hardware::DebouncedKey<K>; K::ROWS]; K::COLUMNS],
+    previous_key_state: u64,
+    previous_raw_state: u64,
+    slave_raw_state: u64,
+    state_mask: u64,
+    lock_mask: u64,
 }
 
 impl<K> KeyState<K> for MasterState<K>
@@ -360,6 +361,7 @@ where
             previous_raw_state: 0,
             slave_raw_state: 0,
             state_mask: !0,
+            lock_mask: 0,
         }
     }
 
@@ -367,22 +369,14 @@ where
         self.active_layers.last().map(|layer| layer.layer_index).unwrap_or(0)
     }
 
-    // FIX: this is problematic with two sides
-    pub fn lock_keys(&mut self) {
-        for column in 0..K::COLUMNS {
-            for row in 0..K::ROWS {
-                let key_index = column * K::ROWS + row;
-
-                // Only disable keys that are not part of a hold layer.
-                if self.state_mask.test_bit(key_index) {
-                    self.keys[column][row].lock();
-                }
-            }
-        }
-    }
-
     pub fn apply(&mut self, mut key_state: u64) -> Option<(usize, u64, u64)> {
         let mut injected_keys = 0;
+
+        // TODO: make key_state immutable and copy to modify instead.
+        let saved_state = key_state;
+
+        // We do this before popping the layers to avoid clearing the mask instantly.
+        self.lock_mask &= key_state;
 
         // Try to pop layers
         while let Some(active_layer) = self.active_layers.last() {
@@ -402,8 +396,7 @@ where
                     // We lock all keys except the layer keys. This avoids
                     // cases where we leave a layer while holding a key and we
                     // send the key again but from the lower layer.
-                    // FIX: this is problematic with two sides
-                    self.lock_keys();
+                    self.lock_mask = self.state_mask & saved_state;
 
                     // Add layer key to the mask again (re-enable the key).
                     self.state_mask.set_bit(key_index);
@@ -417,6 +410,9 @@ where
 
         // Ignore all keys that are held as part of a layer.
         key_state &= self.state_mask;
+
+        // Ignore all locked keys.
+        key_state &= !self.lock_mask;
 
         if key_state | injected_keys != self.previous_key_state {
             // FIX: unclear what happens if we press multiple layer keys on the same
@@ -457,8 +453,7 @@ where
                     // We lock all keys except the layer keys. This avoids
                     // cases where we enter a layer while holding a key and we
                     // send the key again but from the new layer.
-                    // FIX: this is problematic with two sides
-                    self.lock_keys();
+                    self.lock_mask = self.state_mask & saved_state;
 
                     // For now we just set the entire key_state to 0
                     key_state = 0;
