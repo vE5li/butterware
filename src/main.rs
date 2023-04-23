@@ -7,27 +7,25 @@
 #![feature(iter_next_chunk)]
 #![allow(incomplete_features)]
 
-use core::cell::UnsafeCell;
 use core::convert::Infallible;
 use core::ops::ControlFlow;
-use core::sync::atomic::{AtomicBool, Ordering};
 
-use defmt_rtt as _; // global logger
+// global logger
 use embassy_executor::Spawner;
 use embassy_nrf as _; // time driver
 use embassy_nrf::config::{HfclkSource, LfclkSource};
 use embassy_nrf::interrupt;
-use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::driver::now;
 use embassy_time::{Duration, Timer};
+use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 use futures::future::{select, Either};
 use futures::pin_mut;
 use hardware::{DebouncedKey, ScanPins};
 use keys::Mapping;
-use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, AddressType, Connection};
-use nrf_softdevice::{random_bytes, raw, Softdevice};
-use panic_probe as _;
+use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, Connection};
+use nrf_softdevice::{random_bytes, raw, Flash, Softdevice};
 use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
 
 mod ble;
 mod hardware;
@@ -51,11 +49,48 @@ compile_error!("Only one side can be built for at a time. Try disabling either t
 #[cfg(not(any(feature = "left", feature = "right")))]
 compile_error!("No side to compile for was selected. Try enabling the left or right feature.");
 
-/*#[nrf_softdevice::gatt_client(uuid = "180f")]
-struct BatteryServiceClient {
-    #[characteristic(uuid = "2a19", read, write, notify)]
-    battery_level: u8,
-}*/
+mod flash {
+    use core::mem::MaybeUninit;
+
+    use elain::Align;
+
+    const SETTINGS_PAGES: usize = 1;
+
+    #[repr(C)]
+    pub struct SettingsFlash {
+        _align: Align<{ embassy_nrf::nvmc::PAGE_SIZE }>,
+        _data: [u8; embassy_nrf::nvmc::PAGE_SIZE * SETTINGS_PAGES],
+    }
+
+    #[link_section = ".flash_storage"]
+    pub static SETTINGS_FLASH: MaybeUninit<SettingsFlash> = MaybeUninit::uninit();
+}
+
+#[embassy_executor::task]
+async fn flash_task(flash: Flash) {
+    let address = &flash::SETTINGS_FLASH as *const _ as u32;
+
+    defmt::error!("working on flash at address 0x{:x}", &flash::SETTINGS_FLASH as *const _);
+
+    pin_mut!(flash);
+
+    let mut buffer = [0u8; 256];
+    defmt::warn!("starting read");
+    defmt::unwrap!(flash.read(address, &mut buffer).await);
+    defmt::warn!("done with read. value: {:x}", buffer);
+
+    defmt::warn!("start erase page");
+    defmt::unwrap!(flash.erase(address, address + embassy_nrf::nvmc::PAGE_SIZE as u32).await);
+    defmt::warn!("done erase page");
+
+    defmt::warn!("starting write");
+    defmt::unwrap!(flash.write(address, &mut [0x15; 256]).await);
+    defmt::warn!("done with write");
+
+    defmt::warn!("starting read");
+    defmt::unwrap!(flash.read(address, &mut buffer).await);
+    defmt::warn!("done with read. value: {:x}", buffer);
+}
 
 // TODO: rename to BitOperations or similar
 trait TestBit {
@@ -623,8 +658,8 @@ where
                     }
                 };
 
-                // We do this update down here because we cannot mutably access the state inside of
-                // the scope above.
+                // We do this update down here because we cannot mutably access the state inside
+                // of the scope above.
                 state.slave_raw_state = slave_raw_state;
 
                 if let Some(output_state) = state.apply(key_state) {
@@ -710,6 +745,14 @@ async fn main(spawner: Spawner) -> ! {
     let master_server = defmt::unwrap!(MasterServer::new(softdevice));
     server.set_softdevice(softdevice);
     defmt::unwrap!(spawner.spawn(softdevice_task(softdevice)));
+
+    let flash = Flash::take(softdevice);
+    let channel = embassy_sync::channel::Channel::<embassy_sync::blocking_mutex::raw::NoopRawMutex, u8, 8>::new();
+
+    let sender = channel.sender();
+    let receiver = channel.receiver();
+
+    defmt::unwrap!(spawner.spawn(flash_task(flash)));
 
     const ADVERTISING_DATA: AdvertisingData = AdvertisingData::new()
         .add_flags(raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8)
