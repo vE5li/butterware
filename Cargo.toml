@@ -21,7 +21,7 @@ embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe
 
 cortex-m = "0.7.2"
 cortex-m-rt = "0.7.0"
-defmt = "0.3"
+defmt = "=0.3.2"
 defmt-rtt = "0.4.0"
 panic-probe = { version = "0.3", features= ["print-defmt"] }
 nrf-softdevice = { version = "0.1.0", path = "../nrf-softdevice/nrf-softdevice", features = ["nightly", "defmt", "nrf52840", "s140", "ble-peripheral", "ble-central", "critical-section-impl", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "ble-sec"] }
@@ -35,3 +35,4 @@ atomic-pool = "1.0.0"
 static_cell = "1.0.0"
 nb = "1.1.0"
 elain = "0.3.0"
+bytemuck = { version = "1.13.1", features = ["derive"] }

@@ -1,26 +1,40 @@
 use core::cell::{Cell, RefCell};
 
+use bytemuck::{Pod, Zeroable};
 use nrf_softdevice::ble::gatt_server::set_sys_attrs;
 use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
-use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
+use nrf_softdevice::ble::{gatt_server, Address, Connection, EncryptionInfo, IdentityKey, IdentityResolutionKey, MasterId};
 
-#[derive(Debug, Clone, Copy)]
-struct Peer {
-    master_id: MasterId,
-    key: EncryptionInfo,
-    peer_id: IdentityKey,
+use crate::flash::FlashOperation;
+use crate::FLASH_SETTINGS;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, defmt::Format, Zeroable, Pod)]
+pub struct Peer {
+    pub master_id: MasterId,
+    pub key: EncryptionInfo,
+    pub peer_id: IdentityKey,
 }
 
 pub struct Bonder {
     peer: Cell<Option<Peer>>,
     sys_attrs: RefCell<heapless::Vec<u8, 62>>,
+    sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, crate::flash::FlashOperation, 3>,
 }
 
-impl Default for Bonder {
-    fn default() -> Self {
-        Bonder {
+impl Bonder {
+    pub fn new(
+        sender: embassy_sync::channel::Sender<
+            'static,
+            embassy_sync::blocking_mutex::raw::ThreadModeRawMutex,
+            crate::flash::FlashOperation,
+            3,
+        >,
+    ) -> Self {
+        Self {
             peer: Cell::new(None),
             sys_attrs: Default::default(),
+            sender,
         }
     }
 }
@@ -39,18 +53,29 @@ impl SecurityHandler for Bonder {
     }
 
     fn on_bonded(&self, _conn: &Connection, master_id: MasterId, key: EncryptionInfo, peer_id: IdentityKey) {
-        defmt::debug!("storing bond for: id: {}, key: {}", master_id, key);
+        defmt::debug!("Storing bond with key {} for master with id {}", key, master_id);
 
-        // In a real application you would want to signal another task to permanently
-        // store the keys in non-volatile memory here.
-        self.sys_attrs.borrow_mut().clear();
-        self.peer.set(Some(Peer { master_id, key, peer_id }));
+        let peer = Peer { master_id, key, peer_id };
+
+        if self.sender.try_send(FlashOperation::StorePeer(peer)).is_err() {
+            defmt::error!("Failed to send flash operation");
+        }
     }
 
     fn get_key(&self, _conn: &Connection, master_id: MasterId) -> Option<EncryptionInfo> {
-        defmt::debug!("getting bond for: id: {}", master_id);
+        let key = unsafe { FLASH_SETTINGS.assume_init_ref() }
+            .settings
+            .peers
+            .iter()
+            .find(|peer| peer.master_id == master_id)
+            .map(|peer| peer.key);
 
-        self.peer.get().and_then(|peer| (master_id == peer.master_id).then_some(peer.key))
+        match key {
+            Some(key) => defmt::debug!("Found key {} for master with id {}", key, master_id),
+            None => defmt::debug!("Key for master with id {} not found", master_id),
+        }
+
+        key
     }
 
     fn save_sys_attrs(&self, conn: &Connection) {

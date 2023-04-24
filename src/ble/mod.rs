@@ -8,7 +8,7 @@ mod advertising;
 mod bonder;
 mod services;
 pub use self::advertising::{AdvertisingData, KEYBOARD_ICON};
-pub use self::bonder::Bonder;
+pub use self::bonder::{Bonder, Peer};
 use self::services::*;
 
 // Make this a builder struct so we can make the softdevice reference nice
@@ -37,14 +37,14 @@ impl<'a> Server<'a> {
         self.softdevice = Some(softdevice);
     }
 
-    pub fn send_input_report<T>(&self, connection: &Connection, active_layer: usize, key_state: u64)
+    pub fn send_input_report<K>(&self, connection: &Connection, active_layer: usize, key_state: u64)
     where
-        T: Keyboard,
-        [(); <T as Scannable>::NAME_LENGTH]:,
-        [(); <T as Scannable>::MAXIMUM_ACTIVE_LAYERS]:,
-        [(); <T as Scannable>::COLUMNS * <T as Scannable>::ROWS * 2]:,
+        K: Keyboard,
+        [(); <K as Scannable>::NAME_LENGTH]:,
+        [(); <K as Scannable>::MAXIMUM_ACTIVE_LAYERS]:,
+        [(); <K as Scannable>::COLUMNS * <K as Scannable>::ROWS * 2]:,
     {
-        self.hid_service.send_input_report::<T>(connection, active_layer, key_state);
+        self.hid_service.send_input_report::<K>(connection, active_layer, key_state);
     }
 }
 
