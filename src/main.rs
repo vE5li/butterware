@@ -14,9 +14,9 @@ use core::ops::ControlFlow;
 use bytemuck::{Pod, Zeroable};
 // global logger
 use embassy_executor::Spawner;
-use embassy_nrf as _; // time driver
 use embassy_nrf::config::{HfclkSource, LfclkSource};
 use embassy_nrf::interrupt;
+use embassy_nrf::{self as _, nvmc}; // time driver
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_time::driver::now;
 use embassy_time::{Duration, Timer};
@@ -25,7 +25,7 @@ use futures::future::{select, Either};
 use futures::pin_mut;
 use hardware::{DebouncedKey, ScanPins};
 use keys::Mapping;
-use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, Connection};
+use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, Connection, MasterId};
 use nrf_softdevice::{random_bytes, raw, Flash, Softdevice};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -56,6 +56,7 @@ mod flash {
     use core::mem::MaybeUninit;
 
     use elain::Align;
+    use embassy_nrf::nvmc;
 
     use crate::AlignedFlashSettings;
 
@@ -63,12 +64,13 @@ mod flash {
 
     pub enum FlashOperation {
         StorePeer(crate::ble::Peer),
+        RemovePeer(usize),
     }
 
     #[repr(C)]
     pub struct SettingsFlash {
-        _align: Align<{ embassy_nrf::nvmc::PAGE_SIZE }>,
-        _data: [u8; embassy_nrf::nvmc::PAGE_SIZE * SETTINGS_PAGES],
+        _align: Align<{ nvmc::PAGE_SIZE }>,
+        _data: [u8; nvmc::PAGE_SIZE * SETTINGS_PAGES],
     }
 
     #[link_section = ".flash_storage"]
@@ -76,17 +78,18 @@ mod flash {
 
     // Assert that the settings are not too big for the flash.
     const _: () = assert!(
-        core::mem::size_of::<AlignedFlashSettings>() < embassy_nrf::nvmc::PAGE_SIZE * SETTINGS_PAGES,
+        core::mem::size_of::<AlignedFlashSettings>() < nvmc::PAGE_SIZE * SETTINGS_PAGES,
         "FlashSettings struct is too big to be stored in the reserved flash. Try making it smaller or reserve more space by adjusting \
          SETTINGS_PAGES"
     );
 }
 
+const MAXIMUM_SAVED_CONNECTIONS: usize = 8;
+
 #[repr(C)]
 #[derive(Clone, Copy, defmt::Format, Zeroable, Pod)]
 pub struct FlashSettings {
-    // TODO: Move to a const like MAXIMUM_SAVED_CONNECTIONS
-    peers: [Peer; 4],
+    peers: [Peer; MAXIMUM_SAVED_CONNECTIONS],
 }
 
 // The flash write needs to be aligned, so we use this wrapper struct
@@ -100,6 +103,20 @@ struct AlignedFlashSettings {
 }
 
 static mut FLASH_SETTINGS: MaybeUninit<AlignedFlashSettings> = MaybeUninit::uninit();
+
+async fn write_to_flash(flash: &mut Flash, flash_address: u32, settings: &AlignedFlashSettings, erase: bool) {
+    let bytes = bytemuck::bytes_of(settings);
+
+    if erase {
+        defmt::debug!("start erase page");
+        defmt::unwrap!(flash.erase(flash_address, flash_address + nvmc::PAGE_SIZE as u32).await);
+        defmt::debug!("done erase page");
+    }
+
+    defmt::debug!("starting write with value: {:#?}", bytes);
+    defmt::unwrap!(flash.write(flash_address, bytes).await);
+    defmt::debug!("done with write");
+}
 
 #[embassy_executor::task]
 async fn flash_task(
@@ -125,20 +142,22 @@ async fn flash_task(
         match operation {
             flash::FlashOperation::StorePeer(peer) => {
                 settings.settings.peers[0] = peer;
-                let bytes = bytemuck::bytes_of(settings);
 
-                defmt::debug!("start erase page");
-                defmt::unwrap!(flash.erase(address, address + embassy_nrf::nvmc::PAGE_SIZE as u32).await);
-                defmt::debug!("done erase page");
+                // Since we are potentially trying to set bits to 1 that are currently 0, we
+                // need to erase the section before writing.
+                write_to_flash(&mut flash, address, settings, true).await;
+            }
+            flash::FlashOperation::RemovePeer(slot) => {
+                // The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
+                // because it is known to cause problems with most operating systems. So we
+                // assume that any slot with an address only consisting of zeros is empty.
+                if settings.settings.peers[slot].peer_id.addr != Address::zeroed() {
+                    settings.settings.peers[slot] = Peer::zeroed();
 
-                defmt::debug!("starting write with value: {:#?}", bytes);
-                defmt::unwrap!(flash.write(address, bytes).await);
-                defmt::debug!("done with write");
-
-                defmt::debug!("starting reading");
-                let mut buffer = [0u8; core::mem::size_of::<AlignedFlashSettings>()];
-                defmt::unwrap!(flash.read(address, &mut buffer).await);
-                defmt::debug!("done with read. value: {:#?}", buffer);
+                    // Since all we are doing is setting the bits of a peer to 0, we can write
+                    // without erasing first.
+                    write_to_flash(&mut flash, address, settings, false).await;
+                }
             }
         }
     }
