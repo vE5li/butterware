@@ -8,29 +8,25 @@
 #![allow(incomplete_features)]
 
 use core::convert::Infallible;
-use core::mem::MaybeUninit;
 use core::ops::ControlFlow;
 
-use bytemuck::{Pod, Zeroable};
-// global logger
 use embassy_executor::Spawner;
+use embassy_nrf as _; // time driver
 use embassy_nrf::config::{HfclkSource, LfclkSource};
 use embassy_nrf::interrupt;
-use embassy_nrf::{self as _, nvmc}; // time driver
-use embassy_sync::channel::{Receiver, Sender};
 use embassy_time::driver::now;
 use embassy_time::{Duration, Timer};
-use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 use futures::future::{select, Either};
 use futures::pin_mut;
 use hardware::{DebouncedKey, ScanPins};
 use keys::Mapping;
-use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, Connection, MasterId};
+use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, Connection};
 use nrf_softdevice::{random_bytes, raw, Flash, Softdevice};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 mod ble;
+mod flash;
 mod hardware;
 #[allow(unused)]
 mod keys;
@@ -42,7 +38,7 @@ mod keyboards;
 use ble::Server;
 use keyboards::Used;
 
-use crate::ble::{AdvertisingData, Bonder, Peer, KEYBOARD_ICON};
+use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::hardware::ActiveLayer;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 
@@ -51,117 +47,6 @@ compile_error!("Only one side can be built for at a time. Try disabling either t
 
 #[cfg(not(any(feature = "left", feature = "right")))]
 compile_error!("No side to compile for was selected. Try enabling the left or right feature.");
-
-mod flash {
-    use core::mem::MaybeUninit;
-
-    use elain::Align;
-    use embassy_nrf::nvmc;
-
-    use crate::AlignedFlashSettings;
-
-    const SETTINGS_PAGES: usize = 1;
-
-    pub enum FlashOperation {
-        StorePeer(crate::ble::Peer),
-        RemovePeer(usize),
-    }
-
-    #[repr(C)]
-    pub struct SettingsFlash {
-        _align: Align<{ nvmc::PAGE_SIZE }>,
-        _data: [u8; nvmc::PAGE_SIZE * SETTINGS_PAGES],
-    }
-
-    #[link_section = ".flash_storage"]
-    pub static SETTINGS_FLASH: MaybeUninit<SettingsFlash> = MaybeUninit::uninit();
-
-    // Assert that the settings are not too big for the flash.
-    const _: () = assert!(
-        core::mem::size_of::<AlignedFlashSettings>() < nvmc::PAGE_SIZE * SETTINGS_PAGES,
-        "FlashSettings struct is too big to be stored in the reserved flash. Try making it smaller or reserve more space by adjusting \
-         SETTINGS_PAGES"
-    );
-}
-
-const MAXIMUM_SAVED_CONNECTIONS: usize = 8;
-
-#[repr(C)]
-#[derive(Clone, Copy, defmt::Format, Zeroable, Pod)]
-pub struct FlashSettings {
-    peers: [Peer; MAXIMUM_SAVED_CONNECTIONS],
-}
-
-// The flash write needs to be aligned, so we use this wrapper struct
-const PADDING: usize = 3 - ((core::mem::size_of::<FlashSettings>() - 1) % 4);
-
-#[repr(C)]
-#[derive(Clone, Copy, defmt::Format, Zeroable, Pod)]
-struct AlignedFlashSettings {
-    settings: FlashSettings,
-    padding: [u8; PADDING],
-}
-
-static mut FLASH_SETTINGS: MaybeUninit<AlignedFlashSettings> = MaybeUninit::uninit();
-
-async fn write_to_flash(flash: &mut Flash, flash_address: u32, settings: &AlignedFlashSettings, erase: bool) {
-    let bytes = bytemuck::bytes_of(settings);
-
-    if erase {
-        defmt::debug!("start erase page");
-        defmt::unwrap!(flash.erase(flash_address, flash_address + nvmc::PAGE_SIZE as u32).await);
-        defmt::debug!("done erase page");
-    }
-
-    defmt::debug!("starting write with value: {:#?}", bytes);
-    defmt::unwrap!(flash.write(flash_address, bytes).await);
-    defmt::debug!("done with write");
-}
-
-#[embassy_executor::task]
-async fn flash_task(
-    flash: Flash,
-    receiver: Receiver<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, flash::FlashOperation, 3>,
-) {
-    pin_mut!(flash);
-
-    let address = &flash::SETTINGS_FLASH as *const _ as u32;
-    defmt::debug!("Settings flash is at address 0x{:x}", &flash::SETTINGS_FLASH as *const _);
-
-    // Load bytes from flash.
-    let mut buffer = [0u8; core::mem::size_of::<AlignedFlashSettings>()];
-    defmt::unwrap!(flash.read(address, &mut buffer).await);
-
-    // Save to static variable so that other tasks can read from it.
-    let settings = bytemuck::pod_read_unaligned(&buffer);
-    let settings = unsafe { FLASH_SETTINGS.write(settings) };
-
-    loop {
-        let operation = receiver.recv().await;
-
-        match operation {
-            flash::FlashOperation::StorePeer(peer) => {
-                settings.settings.peers[0] = peer;
-
-                // Since we are potentially trying to set bits to 1 that are currently 0, we
-                // need to erase the section before writing.
-                write_to_flash(&mut flash, address, settings, true).await;
-            }
-            flash::FlashOperation::RemovePeer(slot) => {
-                // The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
-                // because it is known to cause problems with most operating systems. So we
-                // assume that any slot with an address only consisting of zeros is empty.
-                if settings.settings.peers[slot].peer_id.addr != Address::zeroed() {
-                    settings.settings.peers[slot] = Peer::zeroed();
-
-                    // Since all we are doing is setting the bits of a peer to 0, we can write
-                    // without erasing first.
-                    write_to_flash(&mut flash, address, settings, false).await;
-                }
-            }
-        }
-    }
-}
 
 // TODO: rename to BitOperations or similar
 trait TestBit {
@@ -814,13 +699,7 @@ async fn main(spawner: Spawner) -> ! {
     defmt::unwrap!(spawner.spawn(softdevice_task(softdevice)));
 
     let flash = Flash::take(softdevice);
-
-    static CHANNEL: embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, flash::FlashOperation, 3> =
-        embassy_sync::channel::Channel::new();
-    let receiver = CHANNEL.receiver();
-    let sender = CHANNEL.sender();
-
-    defmt::unwrap!(spawner.spawn(flash_task(flash, receiver)));
+    defmt::unwrap!(spawner.spawn(flash::flash_task(flash)));
 
     const ADVERTISING_DATA: AdvertisingData = AdvertisingData::new()
         .add_flags(raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8)
@@ -834,7 +713,7 @@ async fn main(spawner: Spawner) -> ! {
     ];
 
     static BONDER: StaticCell<Bonder> = StaticCell::new();
-    let bonder = BONDER.init(Bonder::new(sender));
+    let bonder = BONDER.init(Bonder::new());
 
     loop {
         // Set a well-defined address that the other half can connect to.

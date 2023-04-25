@@ -3,10 +3,9 @@ use core::cell::{Cell, RefCell};
 use bytemuck::{Pod, Zeroable};
 use nrf_softdevice::ble::gatt_server::set_sys_attrs;
 use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
-use nrf_softdevice::ble::{gatt_server, Address, Connection, EncryptionInfo, IdentityKey, IdentityResolutionKey, MasterId};
+use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
 
-use crate::flash::FlashOperation;
-use crate::FLASH_SETTINGS;
+use crate::flash::{self, FlashOperation, FLASH_SETTINGS};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, defmt::Format, Zeroable, Pod)]
@@ -23,18 +22,11 @@ pub struct Bonder {
 }
 
 impl Bonder {
-    pub fn new(
-        sender: embassy_sync::channel::Sender<
-            'static,
-            embassy_sync::blocking_mutex::raw::ThreadModeRawMutex,
-            crate::flash::FlashOperation,
-            3,
-        >,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
             peer: Cell::new(None),
             sys_attrs: Default::default(),
-            sender,
+            sender: flash::FLASH_OPERATIONS.sender(),
         }
     }
 }

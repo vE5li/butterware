@@ -2,8 +2,7 @@ use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::peripherals::{SPI2, SPI3, TWISPI1};
 use embassy_nrf::spim::{Config, Spim};
 
-use crate::interface::{Keyboard, UnwrapInfelliable};
-use crate::TestBit;
+use crate::interface::UnwrapInfelliable;
 
 mod debounce;
 

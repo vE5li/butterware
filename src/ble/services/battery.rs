@@ -1,7 +1,7 @@
 use nrf_softdevice::ble::gatt_server::builder::ServiceBuilder;
 use nrf_softdevice::ble::gatt_server::characteristic::{Attribute, Metadata, Properties};
 use nrf_softdevice::ble::gatt_server::{self, RegisterError};
-use nrf_softdevice::ble::{Connection, DeferredReadReply, SecurityMode, Uuid};
+use nrf_softdevice::ble::{Connection, SecurityMode, Uuid};
 use nrf_softdevice::Softdevice;
 
 // TODO: Move to own service struct
