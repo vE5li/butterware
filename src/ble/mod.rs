@@ -8,7 +8,7 @@ mod advertising;
 mod bonder;
 mod services;
 pub use self::advertising::{AdvertisingData, KEYBOARD_ICON};
-pub use self::bonder::{Bonder, Peer};
+pub use self::bonder::Bonder;
 use self::services::*;
 
 // Make this a builder struct so we can make the softdevice reference nice
