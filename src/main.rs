@@ -30,6 +30,7 @@ mod flash;
 mod hardware;
 #[allow(unused)]
 mod keys;
+mod led;
 #[macro_use]
 mod interface;
 #[path = "../keyboards/mod.rs"]
@@ -41,6 +42,7 @@ use keyboards::Used;
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::hardware::ActiveLayer;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
+use crate::led::{Led, LedStrip};
 
 #[cfg(all(feature = "left", feature = "right"))]
 compile_error!("Only one side can be built for at a time. Try disabling either the left or right feature.");
@@ -170,9 +172,7 @@ async fn connect_determine_master(softdevice: &Softdevice, address: &Address) ->
 
     defmt::debug!("connected to other half");
 
-    // FIX:
-    //let random_number = generate_random_u32(softdevice).await;
-    let random_number = !0;
+    let random_number = generate_random_u32(softdevice).await;
 
     defmt::debug!("random number is {}", random_number);
     defmt::debug!("writing random number to the master service");
@@ -187,6 +187,7 @@ async fn connect_determine_master(softdevice: &Softdevice, address: &Address) ->
 async fn do_slave<'a>(
     softdevice: &Softdevice,
     pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
+    strips: &mut Strips,
     address: &Address,
 ) -> Result<Infallible, HalfDisconnected> {
     let addresses = [address];
@@ -204,6 +205,11 @@ async fn do_slave<'a>(
 
     defmt::info!("connected to other half");
 
+    if let Some(spi) = &mut pins.spi_2 {
+        strips.top_strip.set_uniform_color(Led::rgb(100, 100, 255));
+        spi.write(&strips.top_strip.get_led_data()).await;
+    }
+
     use_slave(&mut keyboard_state, pins, client).await
 }
 
@@ -215,6 +221,7 @@ async fn do_master<'a>(
     adv_data: &[u8],
     scan_data: &[u8],
     pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
+    strips: &mut Strips,
 ) -> Result<Infallible, HalfDisconnected> {
     defmt::debug!("stating master");
 
@@ -224,6 +231,11 @@ async fn do_master<'a>(
     let slave_connection = defmt::unwrap!(peripheral::advertise_connectable(softdevice, adv, &config).await);
 
     defmt::info!("connected to other half");
+
+    if let Some(spi) = &mut pins.spi_2 {
+        strips.top_strip.set_uniform_color(Led::rgb(100, 100, 255));
+        spi.write(&strips.top_strip.get_led_data()).await;
+    }
 
     // Set unified address.
     set_address(softdevice, &Used::ADDRESS);
@@ -235,6 +247,11 @@ async fn do_master<'a>(
         let config = peripheral::Config::default();
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
         let host_connection = defmt::unwrap!(peripheral::advertise_pairable(softdevice, adv, &config, bonder).await);
+
+        if let Some(spi) = &mut pins.spi_2 {
+            strips.top_strip.set_uniform_color(Led::rgb(255, 128, 0));
+            spi.write(&strips.top_strip.get_led_data()).await;
+        }
 
         defmt::warn!("connected");
 
@@ -641,6 +658,10 @@ where
     }
 }
 
+struct Strips {
+    top_strip: LedStrip<17>,
+}
+
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) {
     sd.run().await;
@@ -715,12 +736,21 @@ async fn main(spawner: Spawner) -> ! {
     static BONDER: StaticCell<Bonder> = StaticCell::new();
     let bonder = BONDER.init(Bonder::new());
 
+    let mut strips = Strips {
+        top_strip: LedStrip::new(),
+    };
+
     loop {
         // Set a well-defined address that the other half can connect to.
         #[cfg(feature = "left")]
         set_address(softdevice, &Used::LEFT_ADDRESS);
         #[cfg(feature = "right")]
         set_address(softdevice, &Used::RIGHT_ADDRESS);
+
+        if let Some(spi) = &mut pins.spi_2 {
+            strips.top_strip.set_uniform_color(Led::rgb(0, 255, 0));
+            spi.write(&strips.top_strip.get_led_data()).await;
+        }
 
         // Both sides will connect, initially with the left side as the server and the
         // right as peripheral. Afterwards the will randomly determine which side is the
@@ -729,6 +759,15 @@ async fn main(spawner: Spawner) -> ! {
         let is_master = advertise_determine_master(softdevice, &master_server, ADVERTISING_DATA.get_slice(), scan_data).await;
         #[cfg(feature = "right")]
         let is_master = connect_determine_master(softdevice, &Used::LEFT_ADDRESS).await;
+
+        if let Some(spi) = &mut pins.spi_2 {
+            match is_master {
+                true => strips.top_strip.set_uniform_color(Led::rgb(20, 255, 20)),
+                false => strips.top_strip.set_uniform_color(Led::rgb(255, 20, 20)),
+            }
+
+            spi.write(&strips.top_strip.get_led_data()).await;
+        }
 
         defmt::debug!("is master: {}", is_master);
 
@@ -742,6 +781,7 @@ async fn main(spawner: Spawner) -> ! {
                     ADVERTISING_DATA.get_slice(),
                     scan_data,
                     &mut pins,
+                    &mut strips,
                 )
                 .await
             }
@@ -751,7 +791,7 @@ async fn main(spawner: Spawner) -> ! {
                 #[cfg(feature = "right")]
                 const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
 
-                do_slave(softdevice, &mut pins, &MASTER_ADDRESS).await
+                do_slave(softdevice, &mut pins, &mut strips, &MASTER_ADDRESS).await
             }
         };
 

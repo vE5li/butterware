@@ -1,6 +1,7 @@
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::peripherals::{SPI2, SPI3, TWISPI1};
 use embassy_nrf::spim::{Config, Spim};
+use embassy_nrf::spis::{MODE_2, MODE_1};
 
 use crate::interface::UnwrapInfelliable;
 
@@ -59,6 +60,7 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
         // FIX: fix colliding names
         let mut config_foo = Config::default();
         config_foo.frequency = embassy_nrf::spim::Frequency::M8;
+        config_foo.mode = MODE_1;
 
         let spi = self.spi_config.map(|config| {
             Spim::new_txonly(
@@ -73,6 +75,7 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
         // FIX: fix colliding names
         let mut config_foo = Config::default();
         config_foo.frequency = embassy_nrf::spim::Frequency::M8;
+        config_foo.mode = MODE_1;
 
         let spi_2 = self.spi_2_config.map(|config| {
             Spim::new_txonly(
@@ -87,6 +90,7 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
         // FIX: fix colliding names
         let mut config_foo = Config::default();
         config_foo.frequency = embassy_nrf::spim::Frequency::M8;
+        config_foo.mode = MODE_1;
 
         let spi_1 = self.spi_1_config.map(|config| {
             Spim::new_txonly(
