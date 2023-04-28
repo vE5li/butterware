@@ -246,7 +246,24 @@ async fn do_master<'a>(
         // Advertise
         let config = peripheral::Config::default();
         let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
-        let host_connection = defmt::unwrap!(peripheral::advertise_pairable(softdevice, adv, &config, bonder).await);
+        let advertise_future = peripheral::advertise_pairable(softdevice, adv, &config, bonder);
+        pin_mut!(advertise_future);
+
+        let host_connection = loop {
+            let connection_future = Timer::after(Duration::from_secs(1));
+            pin_mut!(connection_future);
+
+            match select(advertise_future, connection_future).await {
+                Either::Left((advertise_result, _)) => {
+                    break defmt::unwrap!(advertise_result);
+                }
+                Either::Right((_, passed_advertise_future)) => {
+                    slave_connection.check_connected().map_err(|_| HalfDisconnected)?;
+                    advertise_future = passed_advertise_future;
+                    continue;
+                }
+            }
+        };
 
         if let Some(spi) = &mut pins.spi_2 {
             strips.top_strip.set_uniform_color(Led::rgb(255, 128, 0));
@@ -265,6 +282,11 @@ async fn do_master<'a>(
             &host_connection,
         )
         .await?;
+
+        if let Some(spi) = &mut pins.spi_2 {
+            strips.top_strip.set_uniform_color(Led::rgb(100, 100, 255));
+            spi.write(&strips.top_strip.get_led_data()).await;
+        }
     }
 }
 
@@ -554,12 +576,21 @@ where
     loop {
         // Returns any time there is any change in the key state. This state is already
         // debounced.
-        let raw_state = do_scan(state, pins).await;
+        let scan_future = do_scan(state, pins);
+        let connection_future = Timer::after(Duration::from_secs(1));
 
-        // Update the key state on the master.
-        defmt::info!("started to write");
-        defmt::unwrap!(client.key_state_write(&raw_state).await);
-        defmt::info!("done writing");
+        pin_mut!(scan_future);
+        pin_mut!(connection_future);
+
+        match select(scan_future, connection_future).await {
+            Either::Left((raw_state, _)) => {
+                // Update the key state on the master.
+                client.key_state_write(&raw_state).await.map_err(|_| HalfDisconnected)?;
+            }
+            Either::Right(..) => {
+                client.conn.check_connected().map_err(|_| HalfDisconnected)?;
+            }
+        }
     }
 }
 
