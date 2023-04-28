@@ -35,3 +35,5 @@ atomic-pool = "1.0.0"
 static_cell = "1.0.0"
 nb = "1.1.0"
 elain = "0.3.0"
+palette = { version = "0.7.1", default-features = false, features = ["libm"] }
+libm = "0.2.6"

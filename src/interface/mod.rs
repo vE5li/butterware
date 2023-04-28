@@ -20,3 +20,14 @@ impl<T, E> UnwrapInfelliable for Result<T, E> {
         }
     }
 }
+
+impl<T> UnwrapInfelliable for Option<T> {
+    type Output = T;
+
+    fn unwrap_infelliable(self) -> Self::Output {
+        match self {
+            Some(value) => value,
+            None => unreachable!(),
+        }
+    }
+}

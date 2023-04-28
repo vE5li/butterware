@@ -1,7 +1,7 @@
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::peripherals::{SPI2, SPI3, TWISPI1};
 use embassy_nrf::spim::{Config, Spim};
-use embassy_nrf::spis::{MODE_2, MODE_1};
+use embassy_nrf::spis::{MODE_1, MODE_2};
 
 use crate::interface::UnwrapInfelliable;
 
@@ -40,7 +40,7 @@ pub struct ScanPinConfig<const C: usize, const R: usize> {
 }
 
 impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
-    pub fn to_pins(self) -> ScanPins<'static, C, R> {
+    pub fn to_pins(self) -> (ScanPins<'static, C, R>, Spis<'static>) {
         let columns = self
             .columns
             .into_iter()
@@ -102,14 +102,7 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
             )
         });
 
-        ScanPins {
-            columns,
-            rows,
-            power_pin,
-            spi,
-            spi_2,
-            spi_1,
-        }
+        (ScanPins { columns, rows, power_pin }, Spis { spi, spi_2, spi_1 })
     }
 }
 
@@ -117,6 +110,9 @@ pub struct ScanPins<'a, const C: usize, const R: usize> {
     pub columns: [Output<'a, AnyPin>; C],
     pub rows: [Input<'a, AnyPin>; R],
     pub power_pin: Option<Output<'a, AnyPin>>,
+}
+
+pub struct Spis<'a> {
     pub spi: Option<Spim<'a, SPI3>>,
     pub spi_2: Option<Spim<'a, SPI2>>,
     pub spi_1: Option<Spim<'a, TWISPI1>>,

@@ -42,7 +42,7 @@ use keyboards::Used;
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::hardware::ActiveLayer;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
-use crate::led::{Led, LedStrip};
+use crate::led::AnimationType;
 
 #[cfg(all(feature = "left", feature = "right"))]
 compile_error!("Only one side can be built for at a time. Try disabling either the left or right feature.");
@@ -164,6 +164,8 @@ async fn connect_determine_master(softdevice: &Softdevice, address: &Address) ->
     let addresses = [address];
     let mut config = central::ConnectConfig::default();
     config.scan_config.whitelist = Some(&addresses);
+    config.conn_params.min_conn_interval = 6;
+    config.conn_params.max_conn_interval = 6;
 
     defmt::debug!("start scanning");
 
@@ -187,7 +189,7 @@ async fn connect_determine_master(softdevice: &Softdevice, address: &Address) ->
 async fn do_slave<'a>(
     softdevice: &Softdevice,
     pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
-    strips: &mut Strips,
+    led_sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
     address: &Address,
 ) -> Result<Infallible, HalfDisconnected> {
     let addresses = [address];
@@ -205,12 +207,12 @@ async fn do_slave<'a>(
 
     defmt::info!("connected to other half");
 
-    if let Some(spi) = &mut pins.spi_2 {
-        strips.top_strip.set_uniform_color(Led::rgb(100, 100, 255));
-        spi.write(&strips.top_strip.get_led_data()).await;
-    }
+    //let animation = unsafe { flash::FLASH_SETTINGS.assume_init_ref()
+    // }.settings.animation;
+    let animation = AnimationType::Rainbow;
+    led_sender.send(animation).await;
 
-    use_slave(&mut keyboard_state, pins, client).await
+    use_slave(&mut keyboard_state, pins, led_sender, client).await
 }
 
 async fn do_master<'a>(
@@ -221,7 +223,7 @@ async fn do_master<'a>(
     adv_data: &[u8],
     scan_data: &[u8],
     pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
-    strips: &mut Strips,
+    led_sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
 ) -> Result<Infallible, HalfDisconnected> {
     defmt::debug!("stating master");
 
@@ -232,10 +234,10 @@ async fn do_master<'a>(
 
     defmt::info!("connected to other half");
 
-    if let Some(spi) = &mut pins.spi_2 {
-        strips.top_strip.set_uniform_color(Led::rgb(100, 100, 255));
-        spi.write(&strips.top_strip.get_led_data()).await;
-    }
+    //let animation = unsafe { flash::FLASH_SETTINGS.assume_init_ref()
+    // }.settings.animation;
+    let animation = AnimationType::Rainbow;
+    led_sender.send(animation).await;
 
     // Set unified address.
     set_address(softdevice, &Used::ADDRESS);
@@ -265,10 +267,10 @@ async fn do_master<'a>(
             }
         };
 
-        if let Some(spi) = &mut pins.spi_2 {
+        /*if let Some(spi) = &mut pins.spi_2 {
             strips.top_strip.set_uniform_color(Led::rgb(255, 128, 0));
             spi.write(&strips.top_strip.get_led_data()).await;
-        }
+        }*/
 
         defmt::warn!("connected");
 
@@ -276,6 +278,7 @@ async fn do_master<'a>(
         use_master(
             &mut keyboard_state,
             pins,
+            &led_sender,
             server,
             key_state_server,
             &slave_connection,
@@ -283,10 +286,10 @@ async fn do_master<'a>(
         )
         .await?;
 
-        if let Some(spi) = &mut pins.spi_2 {
+        /*if let Some(spi) = &mut pins.spi_2 {
             strips.top_strip.set_uniform_color(Led::rgb(100, 100, 255));
             spi.write(&strips.top_strip.get_led_data()).await;
-        }
+        }*/
     }
 }
 
@@ -565,6 +568,7 @@ struct HalfDisconnected;
 async fn use_slave<'a, K>(
     state: &mut SlaveState<K>,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
+    led_sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
     client: KeyStateServiceClient,
 ) -> Result<Infallible, HalfDisconnected>
 where
@@ -598,6 +602,7 @@ where
 async fn use_master<'a, K>(
     state: &mut MasterState<K>,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
+    led_sender: &embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
     server: &Server<'_>,
     key_state_server: &KeyStateServer,
     slave_connection: &Connection,
@@ -689,10 +694,6 @@ where
     }
 }
 
-struct Strips {
-    top_strip: LedStrip<17>,
-}
-
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) {
     sd.run().await;
@@ -709,7 +710,7 @@ async fn main(spawner: Spawner) -> ! {
     let peripherals = embassy_nrf::init(config);
 
     let mut meboard = Used::new();
-    let mut pins = meboard.init_peripherals(peripherals).to_pins();
+    let (mut pins, spis) = meboard.init_peripherals(peripherals).to_pins();
 
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
@@ -750,6 +751,7 @@ async fn main(spawner: Spawner) -> ! {
     server.set_softdevice(softdevice);
     defmt::unwrap!(spawner.spawn(softdevice_task(softdevice)));
 
+    // Flash task
     let flash = Flash::take(softdevice);
     defmt::unwrap!(spawner.spawn(flash::flash_task(flash)));
 
@@ -767,9 +769,11 @@ async fn main(spawner: Spawner) -> ! {
     static BONDER: StaticCell<Bonder> = StaticCell::new();
     let bonder = BONDER.init(Bonder::new());
 
-    let mut strips = Strips {
-        top_strip: LedStrip::new(),
-    };
+    static LED_CHANNEL: embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3> =
+        embassy_sync::channel::Channel::new();
+
+    // Led task
+    defmt::unwrap!(spawner.spawn(led::led_task(spis, LED_CHANNEL.receiver())));
 
     loop {
         // Set a well-defined address that the other half can connect to.
@@ -778,10 +782,9 @@ async fn main(spawner: Spawner) -> ! {
         #[cfg(feature = "right")]
         set_address(softdevice, &Used::RIGHT_ADDRESS);
 
-        if let Some(spi) = &mut pins.spi_2 {
-            strips.top_strip.set_uniform_color(Led::rgb(0, 255, 0));
-            spi.write(&strips.top_strip.get_led_data()).await;
-        }
+        let led_sender = LED_CHANNEL.sender();
+
+        led_sender.send(AnimationType::Disconnected).await;
 
         // Both sides will connect, initially with the left side as the server and the
         // right as peripheral. Afterwards the will randomly determine which side is the
@@ -791,14 +794,7 @@ async fn main(spawner: Spawner) -> ! {
         #[cfg(feature = "right")]
         let is_master = connect_determine_master(softdevice, &Used::LEFT_ADDRESS).await;
 
-        if let Some(spi) = &mut pins.spi_2 {
-            match is_master {
-                true => strips.top_strip.set_uniform_color(Led::rgb(20, 255, 20)),
-                false => strips.top_strip.set_uniform_color(Led::rgb(255, 20, 20)),
-            }
-
-            spi.write(&strips.top_strip.get_led_data()).await;
-        }
+        led_sender.send(AnimationType::IndicateMaster { is_master }).await;
 
         defmt::debug!("is master: {}", is_master);
 
@@ -812,7 +808,7 @@ async fn main(spawner: Spawner) -> ! {
                     ADVERTISING_DATA.get_slice(),
                     scan_data,
                     &mut pins,
-                    &mut strips,
+                    led_sender,
                 )
                 .await
             }
@@ -822,7 +818,7 @@ async fn main(spawner: Spawner) -> ! {
                 #[cfg(feature = "right")]
                 const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
 
-                do_slave(softdevice, &mut pins, &mut strips, &MASTER_ADDRESS).await
+                do_slave(softdevice, &mut pins, led_sender, &MASTER_ADDRESS).await
             }
         };
 
