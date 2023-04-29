@@ -2,7 +2,7 @@ use core::cell::{Cell, RefCell};
 
 use nrf_softdevice::ble::gatt_server::set_sys_attrs;
 use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
-use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
+use nrf_softdevice::ble::{gatt_server, Address, Connection, EncryptionInfo, IdentityKey, MasterId};
 
 use crate::flash::{self, BondSlot, FlashOperation, Peer, SystemAttributes, FLASH_SETTINGS};
 
@@ -38,10 +38,28 @@ impl SecurityHandler for Bonder {
     fn on_bonded(&self, _conn: &Connection, master_id: MasterId, key: EncryptionInfo, peer_id: IdentityKey) {
         defmt::debug!("Storing bond with key {} for master with id {}", key, master_id);
 
-        let peer = Peer { master_id, key, peer_id };
+        let free_slot = unsafe { FLASH_SETTINGS.assume_init_ref() }
+            .settings
+            .bonds
+            .iter()
+            .position(|bond| bond.peer.peer_id.addr != Address::default());
 
-        if self.sender.try_send(FlashOperation::StorePeer(peer)).is_err() {
-            defmt::error!("Failed to send flash operation");
+        match free_slot {
+            Some(free_slot) => defmt::trace!("Found key {} for master with id {}", key, master_id),
+            None => defmt::trace!("Key for master with id {} not found", master_id),
+        }
+
+        // FIX: Figure out how to choose another slot if all of them are full
+        if let Some(free_slot) = free_slot {
+            let peer = Peer { master_id, key, peer_id };
+            let flash_operation = FlashOperation::StorePeer {
+                slot: BondSlot(free_slot),
+                peer,
+            };
+
+            if self.sender.try_send(flash_operation).is_err() {
+                defmt::error!("Failed to send flash operation");
+            }
         }
     }
 
@@ -107,7 +125,11 @@ impl SecurityHandler for Bonder {
             .filter(|attributes| !attributes.is_empty());
 
         match attributes {
-            Some(attributes) => defmt::trace!("Found system attributes {:?} for peer with address {}", attributes, peer_address),
+            Some(attributes) => defmt::trace!(
+                "Found system attributes {:?} for peer with address {}",
+                attributes,
+                peer_address
+            ),
             None => defmt::trace!("No system attributes found for peer with address {}", peer_address),
         }
 

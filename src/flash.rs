@@ -30,7 +30,10 @@ pub static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Ch
 pub struct BondSlot(pub usize);
 
 pub enum FlashOperation {
-    StorePeer(Peer),
+    StorePeer {
+        slot: BondSlot,
+        peer: Peer,
+    },
     StoreSystemAttributes {
         slot: BondSlot,
         system_attributes: SystemAttributes,
@@ -121,20 +124,12 @@ pub async fn flash_task(flash: Flash) {
         let operation = receiver.recv().await;
 
         match operation {
-            FlashOperation::StorePeer(peer) => {
-                let free_slot = settings
-                    .settings
-                    .bonds
-                    .iter_mut()
-                    .find(|bond| peer.peer_id.addr != Address::default());
+            FlashOperation::StorePeer { slot, peer } => {
+                settings.settings.bonds[slot.0].peer = peer;
 
-                if let Some(slot) = free_slot {
-                    slot.peer = peer;
-
-                    // Since we are potentially trying to set bits to 1 that are currently 0, we
-                    // need to erase the section before writing.
-                    write_to_flash(&mut flash, address, settings, true).await;
-                }
+                // Since we are potentially trying to set bits to 1 that are currently 0, we
+                // need to erase the section before writing.
+                write_to_flash(&mut flash, address, settings, true).await;
             }
             FlashOperation::StoreSystemAttributes { slot, system_attributes } => {
                 settings.settings.bonds[slot.0].system_attributes = system_attributes;
