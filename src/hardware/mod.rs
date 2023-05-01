@@ -1,13 +1,17 @@
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::peripherals::{SPI2, SPI3, TWISPI1};
 use embassy_nrf::spim::{Config, Spim};
-use embassy_nrf::spis::{MODE_1, MODE_2};
+use embassy_nrf::spis::MODE_1;
 
 use crate::interface::UnwrapInfelliable;
 
 mod debounce;
+mod state;
+mod random;
 
 pub use self::debounce::DebouncedKey;
+pub use self::state::{KeyState, MasterState, SlaveState, do_scan};
+pub use self::random::generate_random_u32;
 
 pub struct SpiConfig {
     pub interface: SPI3,
@@ -123,4 +127,27 @@ pub struct ActiveLayer {
     pub layer_index: usize,
     pub key_index: usize,
     pub tap_timer: Option<u64>,
+}
+
+// TODO: rename to BitOperations or similar
+pub trait TestBit {
+    fn test_bit(self, offset: usize) -> bool;
+
+    fn clear_bit(&mut self, offset: usize);
+
+    fn set_bit(&mut self, offset: usize);
+}
+
+impl TestBit for u64 {
+    fn test_bit(self, offset: usize) -> bool {
+        (self >> offset) & 0b1 != 0
+    }
+
+    fn clear_bit(&mut self, offset: usize) {
+        *self &= !(1 << offset);
+    }
+
+    fn set_bit(&mut self, offset: usize) {
+        *self |= 1 << offset;
+    }
 }

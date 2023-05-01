@@ -75,3 +75,59 @@ impl<'a> gatt_server::Server for Server<'a> {
         None
     }
 }
+
+#[nrf_softdevice::gatt_client(uuid = "5a7ef8bc-de9e-11ed-b5ea-0242ac120002")]
+pub struct MasterServiceClient {
+    #[characteristic(uuid = "66762370-de9e-11ed-b5ea-0242ac120002", read, write)]
+    pub other_random_number: u32,
+    #[characteristic(uuid = "734e5e64-de9e-11ed-b5ea-0242ac120002", read)]
+    pub is_master: bool,
+}
+
+#[nrf_softdevice::gatt_service(uuid = "5a7ef8bc-de9e-11ed-b5ea-0242ac120002")]
+pub struct MasterService {
+    #[characteristic(uuid = "66762370-de9e-11ed-b5ea-0242ac120002", read, write)]
+    pub other_random_number: u32,
+    #[characteristic(uuid = "734e5e64-de9e-11ed-b5ea-0242ac120002", read)]
+    pub is_master: bool,
+}
+
+#[nrf_softdevice::gatt_server]
+pub struct MasterServer {
+    pub master_service: MasterService,
+}
+
+#[nrf_softdevice::gatt_service(uuid = "c78c4d70-e02d-11ed-b5ea-0242ac120002")]
+pub struct KeyStateService {
+    #[characteristic(uuid = "d8004dfa-e02d-11ed-b5ea-0242ac120002", write)]
+    pub key_state: u64,
+}
+
+#[nrf_softdevice::gatt_client(uuid = "c78c4d70-e02d-11ed-b5ea-0242ac120002")]
+pub struct KeyStateServiceClient {
+    #[characteristic(uuid = "d8004dfa-e02d-11ed-b5ea-0242ac120002", write)]
+    pub key_state: u64,
+}
+
+#[nrf_softdevice::gatt_service(uuid = "fe027f36-e7e0-11ed-a05b-0242ac120003")]
+pub struct FlashService {
+    #[characteristic(uuid = "0b257fe2-e7e1-11ed-a05b-0242ac120003", write)]
+    pub flash_operation: crate::flash::FlashOperation,
+}
+
+#[nrf_softdevice::gatt_client(uuid = "fe027f36-e7e0-11ed-a05b-0242ac120003")]
+pub struct FlashServiceClient {
+    #[characteristic(uuid = "0b257fe2-e7e1-11ed-a05b-0242ac120003", write)]
+    pub flash_operation: crate::flash::FlashOperation,
+}
+
+#[nrf_softdevice::gatt_server]
+pub struct KeyStateServer {
+    pub key_state_service: KeyStateService,
+}
+
+#[nrf_softdevice::gatt_server]
+pub struct FlashServer {
+    pub flash_service: FlashService,
+}
+

@@ -7,7 +7,7 @@ use nrf_softdevice::ble::{Connection, DeferredReadReply, SecurityMode, Uuid};
 use nrf_softdevice::Softdevice;
 
 use crate::interface::{Keyboard, Scannable};
-use crate::TestBit;
+use crate::hardware::TestBit;
 
 pub struct InputReport;
 pub struct OutpetReport;
