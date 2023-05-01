@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 use futures::pin_mut;
-use nrf_softdevice::ble::{Address, EncryptionInfo, IdentityKey, MasterId};
+use nrf_softdevice::ble::{Address, EncryptionInfo, FixedGattValue, IdentityKey, MasterId};
 use nrf_softdevice::Flash;
 
 use crate::AnimationType;
@@ -26,9 +26,14 @@ const _: () = assert!(
 pub static SETTINGS_FLASH: MaybeUninit<ReservedFlash> = MaybeUninit::uninit();
 pub static mut FLASH_SETTINGS: MaybeUninit<AlignedFlashSettings> = MaybeUninit::uninit();
 pub static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
+pub static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, defmt::Format)]
 pub struct BondSlot(pub usize);
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, defmt::Format)]
 pub enum FlashOperation {
     StorePeer {
         slot: BondSlot,
@@ -41,6 +46,20 @@ pub enum FlashOperation {
     RemovePeer(BondSlot),
 }
 
+impl FixedGattValue for FlashOperation {
+    const SIZE: usize = core::mem::size_of::<FlashOperation>();
+
+    fn from_gatt(data: &[u8]) -> Self {
+        let mut buffer = [0; Self::SIZE];
+        buffer.copy_from_slice(data);
+        unsafe { core::mem::transmute::<&[u8; Self::SIZE], &FlashOperation>(&buffer).clone() }
+    }
+
+    fn to_gatt(&self) -> &[u8] {
+        unsafe { core::mem::transmute::<&FlashOperation, &[u8; Self::SIZE]>(self) }
+    }
+}
+
 #[repr(C)]
 pub struct ReservedFlash {
     _align: Align<{ nvmc::PAGE_SIZE }>,
@@ -48,7 +67,7 @@ pub struct ReservedFlash {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, defmt::Format)]
+#[derive(Clone, Copy, Debug, defmt::Format)]
 pub struct SystemAttributes {
     pub length: usize,
     pub data: [u8; 64],

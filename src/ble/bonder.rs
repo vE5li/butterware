@@ -10,6 +10,8 @@ pub struct Bonder {
     peer: Cell<Option<Peer>>,
     sys_attrs: RefCell<heapless::Vec<u8, 62>>,
     sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, crate::flash::FlashOperation, 3>,
+    slave_sender:
+        embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, crate::flash::FlashOperation, 3>,
 }
 
 impl Bonder {
@@ -18,7 +20,22 @@ impl Bonder {
             peer: Cell::new(None),
             sys_attrs: Default::default(),
             sender: flash::FLASH_OPERATIONS.sender(),
+            slave_sender: flash::SLAVE_FLASH_OPERATIONS.sender(),
         }
+    }
+}
+
+impl Bonder {
+    fn send(&self, flash_operation: FlashOperation) {
+        if self.sender.try_send(flash_operation).is_err() {
+            defmt::error!("Failed to send flash operation to flash task");
+        }
+
+        if self.slave_sender.try_send(flash_operation).is_err() {
+            defmt::error!("Failed to send flash operation to slave");
+        }
+
+        defmt::warn!("Sent to flash_operations");
     }
 }
 
@@ -42,11 +59,11 @@ impl SecurityHandler for Bonder {
             .settings
             .bonds
             .iter()
-            .position(|bond| bond.peer.peer_id.addr != Address::default());
+            .position(|bond| bond.peer.peer_id.addr == Address::default());
 
         match free_slot {
-            Some(free_slot) => defmt::trace!("Found key {} for master with id {}", key, master_id),
-            None => defmt::trace!("Key for master with id {} not found", master_id),
+            Some(free_slot) => defmt::trace!("Found free slot at {}", free_slot),
+            None => defmt::trace!("No free slot found for bond"),
         }
 
         // FIX: Figure out how to choose another slot if all of them are full
@@ -56,10 +73,7 @@ impl SecurityHandler for Bonder {
                 slot: BondSlot(free_slot),
                 peer,
             };
-
-            if self.sender.try_send(flash_operation).is_err() {
-                defmt::error!("Failed to send flash operation");
-            }
+            self.send(flash_operation);
         }
     }
 
@@ -104,10 +118,7 @@ impl SecurityHandler for Bonder {
                 slot: BondSlot(slot),
                 system_attributes,
             };
-
-            if self.sender.try_send(flash_operation).is_err() {
-                defmt::error!("Failed to send flash operation");
-            }
+            self.send(flash_operation);
         }
     }
 

@@ -141,7 +141,7 @@ where
 }
 
 pub struct Strips {
-    top_strip: LedStrip<17>,
+    top_strip: LedStrip<57>,
 }
 
 #[repr(C)]

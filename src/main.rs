@@ -20,6 +20,8 @@ use futures::future::{select, Either};
 use futures::pin_mut;
 use hardware::{DebouncedKey, ScanPins};
 use keys::Mapping;
+use nrf_softdevice::ble::gatt_client::ReadError;
+use nrf_softdevice::ble::gatt_server::Service;
 use nrf_softdevice::ble::{central, gatt_server, peripheral, set_address, Address, Connection};
 use nrf_softdevice::{random_bytes, raw, Flash, Softdevice};
 use static_cell::StaticCell;
@@ -27,6 +29,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 mod ble;
 mod flash;
+mod future;
 mod hardware;
 #[allow(unused)]
 mod keys;
@@ -110,21 +113,38 @@ struct MasterServer {
     master_service: MasterService,
 }
 
-#[nrf_softdevice::gatt_client(uuid = "c78c4d70-e02d-11ed-b5ea-0242ac120002")]
-struct KeyStateServiceClient {
-    #[characteristic(uuid = "d8004dfa-e02d-11ed-b5ea-0242ac120002", write)]
-    key_state: u64,
-}
-
 #[nrf_softdevice::gatt_service(uuid = "c78c4d70-e02d-11ed-b5ea-0242ac120002")]
 struct KeyStateService {
     #[characteristic(uuid = "d8004dfa-e02d-11ed-b5ea-0242ac120002", write)]
     key_state: u64,
 }
 
+#[nrf_softdevice::gatt_client(uuid = "c78c4d70-e02d-11ed-b5ea-0242ac120002")]
+struct KeyStateServiceClient {
+    #[characteristic(uuid = "d8004dfa-e02d-11ed-b5ea-0242ac120002", write)]
+    key_state: u64,
+}
+
+#[nrf_softdevice::gatt_service(uuid = "fe027f36-e7e0-11ed-a05b-0242ac120003")]
+struct FlashService {
+    #[characteristic(uuid = "0b257fe2-e7e1-11ed-a05b-0242ac120003", write)]
+    flash_operation: flash::FlashOperation,
+}
+
+#[nrf_softdevice::gatt_client(uuid = "fe027f36-e7e0-11ed-a05b-0242ac120003")]
+struct FlashServiceClient {
+    #[characteristic(uuid = "0b257fe2-e7e1-11ed-a05b-0242ac120003", write)]
+    flash_operation: flash::FlashOperation,
+}
+
 #[nrf_softdevice::gatt_server]
 struct KeyStateServer {
     key_state_service: KeyStateService,
+}
+
+#[nrf_softdevice::gatt_server]
+struct FlashServer {
+    flash_service: FlashService,
 }
 
 async fn advertise_determine_master(softdevice: &Softdevice, server: &MasterServer, adv_data: &[u8], scan_data: &[u8]) -> bool {
@@ -188,6 +208,7 @@ async fn connect_determine_master(softdevice: &Softdevice, address: &Address) ->
 
 async fn do_slave<'a>(
     softdevice: &Softdevice,
+    flash_server: &FlashServer,
     pins: &mut ScanPins<'a, { Used::COLUMNS }, { Used::ROWS }>,
     led_sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
     address: &Address,
@@ -203,7 +224,6 @@ async fn do_slave<'a>(
     defmt::debug!("stating slave");
 
     let master_connection = defmt::unwrap!(central::connect(softdevice, &config).await);
-    let client: KeyStateServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&master_connection).await);
 
     defmt::info!("connected to other half");
 
@@ -212,7 +232,7 @@ async fn do_slave<'a>(
     let animation = AnimationType::Rainbow;
     led_sender.send(animation).await;
 
-    use_slave(&mut keyboard_state, pins, led_sender, client).await
+    use_slave(&mut keyboard_state, pins, led_sender, master_connection, flash_server).await
 }
 
 async fn do_master<'a>(
@@ -569,7 +589,8 @@ async fn use_slave<'a, K>(
     state: &mut SlaveState<K>,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
     led_sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
-    client: KeyStateServiceClient,
+    master_connection: Connection,
+    flash_server: &FlashServer,
 ) -> Result<Infallible, HalfDisconnected>
 where
     K: Keyboard,
@@ -577,23 +598,34 @@ where
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
+    let key_state_client: KeyStateServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&master_connection).await);
+    let flash_sender = flash::FLASH_OPERATIONS.sender();
+
     loop {
         // Returns any time there is any change in the key state. This state is already
         // debounced.
         let scan_future = do_scan(state, pins);
-        let connection_future = Timer::after(Duration::from_secs(1));
+        let flash_future = nrf_softdevice::ble::gatt_server::run(&master_connection, flash_server, |event| match event {
+            FlashServerEvent::FlashService(event) => match event {
+                FlashServiceEvent::FlashOperationWrite(flash_operation) => {
+                    defmt::debug!("Received flash operation {:?}", flash_operation);
+
+                    if flash_sender.try_send(flash_operation).is_err() {
+                        defmt::error!("Failed to send flash operation to the flash task");
+                    }
+                }
+            },
+        });
 
         pin_mut!(scan_future);
-        pin_mut!(connection_future);
+        pin_mut!(flash_future);
 
-        match select(scan_future, connection_future).await {
+        match select(scan_future, flash_future).await {
             Either::Left((raw_state, _)) => {
                 // Update the key state on the master.
-                client.key_state_write(&raw_state).await.map_err(|_| HalfDisconnected)?;
+                key_state_client.key_state_write(&raw_state).await.map_err(|_| HalfDisconnected)?;
             }
-            Either::Right(..) => {
-                client.conn.check_connected().map_err(|_| HalfDisconnected)?;
-            }
+            Either::Right(..) => return Err(HalfDisconnected),
         }
     }
 }
@@ -617,6 +649,9 @@ where
     let host_future = gatt_server::run(host_connection, server, |_| {});
     pin_mut!(host_future);
 
+    let flash_operations = flash::SLAVE_FLASH_OPERATIONS.receiver();
+    let flash_client: FlashServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
+
     loop {
         let inner_future = async {
             loop {
@@ -631,14 +666,25 @@ where
                             KeyStateServiceEvent::KeyStateWrite(key_state) => ControlFlow::Break(key_state),
                         },
                     });
+                    let flash_future = async {
+                        loop {
+                            let flash_operation = flash_operations.recv().await;
+
+                            defmt::info!("Received flash operation for client");
+
+                            defmt::info!("Setting flash operation for client to {:?}", flash_operation);
+
+                            defmt::unwrap!(flash_client.flash_operation_write(&flash_operation).await);
+                        }
+                    };
 
                     // Pin futures so we can call select on them.
-                    pin_mut!(scan_future);
-                    pin_mut!(slave_future);
+                    //pin_mut!(scan_future);
+                    //pin_mut!(slave_future);
 
-                    match select(scan_future, slave_future).await {
+                    match future::select3(scan_future, slave_future, flash_future).await {
                         // Master side state changed.
-                        Either::Left((key_state, _)) => {
+                        future::Either3::First(key_state) => {
                             #[cfg(feature = "left")]
                             let combined_state = slave_raw_state | (key_state << K::KEY_COUNT);
 
@@ -648,7 +694,7 @@ where
                             (combined_state, slave_raw_state)
                         }
                         // Slave side state changed.
-                        Either::Right((key_state, _)) => {
+                        future::Either3::Second(key_state) => {
                             let key_state = key_state.map_err(|_| HalfDisconnected)?;
 
                             #[cfg(feature = "left")]
@@ -659,6 +705,7 @@ where
 
                             (combined_state, key_state)
                         }
+                        future::Either3::Third(..) => unreachable!(),
                     }
                 };
 
@@ -746,6 +793,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut server = defmt::unwrap!(Server::new(softdevice));
     // TODO: move this into the other thing too
     let key_state_server = defmt::unwrap!(KeyStateServer::new(softdevice));
+    let flash_server = defmt::unwrap!(FlashServer::new(softdevice));
     #[cfg(feature = "left")]
     let master_server = defmt::unwrap!(MasterServer::new(softdevice));
     server.set_softdevice(softdevice);
@@ -818,7 +866,7 @@ async fn main(spawner: Spawner) -> ! {
                 #[cfg(feature = "right")]
                 const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
 
-                do_slave(softdevice, &mut pins, led_sender, &MASTER_ADDRESS).await
+                do_slave(softdevice, &flash_server, &mut pins, led_sender, &MASTER_ADDRESS).await
             }
         };
 
