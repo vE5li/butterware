@@ -1,17 +1,23 @@
 use core::convert::Infallible;
 
-use futures::{pin_mut, future::{select, Either}};
-use nrf_softdevice::{Softdevice, ble::{Address, central, Connection}};
-
-use crate::{ble::{FlashServer, KeyStateServiceClient, FlashServerEvent, FlashServiceEvent}, hardware::{ScanPins, SlaveState}, led::AnimationType, interface::Keyboard};
+use futures::future::{select, Either};
+use futures::pin_mut;
+use nrf_softdevice::ble::{central, Address, Connection};
+use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
+use crate::ble::{FlashServer, FlashServerEvent, FlashServiceEvent, KeyStateServiceClient};
+use crate::hardware::{ScanPins, SlaveState};
+use crate::interface::Keyboard;
+#[cfg(feature = "lighting")]
+use crate::led::AnimationType;
+use crate::led::LedSender;
 
 pub async fn do_slave<'a, K>(
     softdevice: &Softdevice,
     flash_server: &FlashServer,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    led_sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
+    #[cfg(feature = "lighting")] led_sender: LedSender,
     address: &Address,
 ) -> Result<Infallible, HalfDisconnected>
 where
@@ -37,16 +43,27 @@ where
 
     //let animation = unsafe { flash::FLASH_SETTINGS.assume_init_ref()
     // }.settings.animation;
+    #[cfg(feature = "lighting")]
     let animation = AnimationType::Rainbow;
+
+    #[cfg(feature = "lighting")]
     led_sender.send(animation).await;
 
-    slave_connection(&mut keyboard_state, pins, led_sender, master_connection, flash_server).await
+    slave_connection(
+        &mut keyboard_state,
+        pins,
+        #[cfg(feature = "lighting")]
+        led_sender,
+        master_connection,
+        flash_server,
+    )
+    .await
 }
 
 async fn slave_connection<'a, K>(
     state: &mut SlaveState<K>,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    led_sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
+    #[cfg(feature = "lighting")] led_sender: LedSender,
     master_connection: Connection,
     flash_server: &FlashServer,
 ) -> Result<Infallible, HalfDisconnected>

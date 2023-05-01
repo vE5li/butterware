@@ -9,7 +9,8 @@ use futures::pin_mut;
 use nrf_softdevice::ble::{Address, EncryptionInfo, FixedGattValue, IdentityKey, MasterId};
 use nrf_softdevice::Flash;
 
-use crate::AnimationType;
+#[cfg(feature = "lighting")]
+use crate::led::AnimationType;
 
 const SETTINGS_PAGES: usize = 1;
 // The flash write needs to be aligned, so we use this wrapper struct
@@ -98,6 +99,7 @@ pub struct Bond {
 #[derive(Clone, Copy, defmt::Format)]
 pub struct FlashSettings {
     pub bonds: [Bond; MAXIMUM_SAVED_CONNECTIONS],
+    #[cfg(feature = "lighting")]
     pub animation: AnimationType,
 }
 

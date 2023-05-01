@@ -2,16 +2,18 @@ use core::convert::Infallible;
 use core::ops::ControlFlow;
 
 use embassy_time::{Duration, Timer};
-use futures::future::{Either, select};
+use futures::future::{select, Either};
 use futures::pin_mut;
+use nrf_softdevice::ble::{gatt_server, peripheral, set_address, Connection};
 use nrf_softdevice::Softdevice;
-use nrf_softdevice::ble::{peripheral, set_address, Connection, gatt_server};
 
 use super::HalfDisconnected;
-use crate::ble::{Bonder, KeyStateServer, Server, FlashServiceClient, KeyStateServerEvent, KeyStateServiceEvent};
-use crate::hardware::{ScanPins, MasterState};
+use crate::ble::{Bonder, FlashServiceClient, KeyStateServer, KeyStateServerEvent, KeyStateServiceEvent, Server};
+use crate::hardware::{MasterState, ScanPins};
 use crate::interface::{Keyboard, KeyboardExtension};
+#[cfg(feature = "lighting")]
 use crate::led::AnimationType;
+use crate::led::LedSender;
 
 pub async fn do_master<'a, K>(
     softdevice: &Softdevice,
@@ -21,7 +23,7 @@ pub async fn do_master<'a, K>(
     adv_data: &[u8],
     scan_data: &[u8],
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    led_sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
+    #[cfg(feature = "lighting")] led_sender: LedSender,
 ) -> Result<Infallible, HalfDisconnected>
 where
     K: Keyboard,
@@ -40,7 +42,10 @@ where
 
     //let animation = unsafe { flash::FLASH_SETTINGS.assume_init_ref()
     // }.settings.animation;
+    #[cfg(feature = "lighting")]
     let animation = AnimationType::Rainbow;
+
+    #[cfg(feature = "lighting")]
     led_sender.send(animation).await;
 
     // Set unified address.
@@ -82,6 +87,7 @@ where
         master_connection(
             &mut keyboard_state,
             pins,
+            #[cfg(feature = "lighting")]
             &led_sender,
             server,
             key_state_server,
@@ -100,7 +106,7 @@ where
 async fn master_connection<'a, K>(
     state: &mut MasterState<K>,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    led_sender: &embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3>,
+    #[cfg(feature = "lighting")] led_sender: &LedSender,
     server: &Server<'_>,
     key_state_server: &KeyStateServer,
     slave_connection: &Connection,

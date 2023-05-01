@@ -23,6 +23,7 @@ mod future;
 mod hardware;
 #[allow(unused)]
 mod keys;
+#[cfg(feature = "lighting")]
 mod led;
 mod split;
 #[macro_use]
@@ -36,6 +37,7 @@ use ble::Server;
 
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::interface::Keyboard;
+#[cfg(feature = "lighting")]
 use crate::led::AnimationType;
 
 #[cfg(all(feature = "left", feature = "right"))]
@@ -97,12 +99,13 @@ async fn main(spawner: Spawner) -> ! {
     };
 
     let softdevice = Softdevice::enable(&config);
+
     let mut server = defmt::unwrap!(Server::new(softdevice));
-    // TODO: move this into the other thing too
     let key_state_server = defmt::unwrap!(ble::KeyStateServer::new(softdevice));
     let flash_server = defmt::unwrap!(ble::FlashServer::new(softdevice));
     #[cfg(feature = "left")]
     let master_server = defmt::unwrap!(ble::MasterServer::new(softdevice));
+
     server.set_softdevice(softdevice);
     defmt::unwrap!(spawner.spawn(softdevice_task(softdevice)));
 
@@ -110,6 +113,11 @@ async fn main(spawner: Spawner) -> ! {
     let flash = Flash::take(softdevice);
     defmt::unwrap!(spawner.spawn(flash::flash_task(flash)));
 
+    // Led task
+    #[cfg(feature = "lighting")]
+    defmt::unwrap!(spawner.spawn(led::led_task(spis)));
+
+    // Bluetooth setup
     const ADVERTISING_DATA: AdvertisingData = AdvertisingData::new()
         .add_flags(raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8)
         .add_services(&[0x09, 0x18])
@@ -121,12 +129,6 @@ async fn main(spawner: Spawner) -> ! {
     static BONDER: StaticCell<Bonder> = StaticCell::new();
     let bonder = BONDER.init(Bonder::new());
 
-    static LED_CHANNEL: embassy_sync::channel::Channel<embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, AnimationType, 3> =
-        embassy_sync::channel::Channel::new();
-
-    // Led task
-    defmt::unwrap!(spawner.spawn(led::led_task(spis, LED_CHANNEL.receiver())));
-
     loop {
         // Set a well-defined address that the other half can connect to.
         #[cfg(feature = "left")]
@@ -134,8 +136,10 @@ async fn main(spawner: Spawner) -> ! {
         #[cfg(feature = "right")]
         set_address(softdevice, &Used::RIGHT_ADDRESS);
 
-        let led_sender = LED_CHANNEL.sender();
+        #[cfg(feature = "lighting")]
+        let led_sender = led::led_sender();
 
+        #[cfg(feature = "lighting")]
         led_sender.send(AnimationType::Disconnected).await;
 
         // Both sides will connect, initially with the left side as the server and the
@@ -147,6 +151,7 @@ async fn main(spawner: Spawner) -> ! {
         #[cfg(feature = "right")]
         let is_master = split::connect_determine_master(softdevice, &Used::LEFT_ADDRESS).await;
 
+        #[cfg(feature = "lighting")]
         led_sender.send(AnimationType::IndicateMaster { is_master }).await;
 
         defmt::debug!("is master: {}", is_master);
@@ -161,6 +166,7 @@ async fn main(spawner: Spawner) -> ! {
                     ADVERTISING_DATA.get_slice(),
                     SCAN_DATA,
                     &mut pins,
+                    #[cfg(feature = "lighting")]
                     led_sender,
                 )
                 .await
@@ -171,7 +177,15 @@ async fn main(spawner: Spawner) -> ! {
                 #[cfg(feature = "right")]
                 const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
 
-                split::do_slave::<Used>(softdevice, &flash_server, &mut pins, led_sender, &MASTER_ADDRESS).await
+                split::do_slave::<Used>(
+                    softdevice,
+                    &flash_server,
+                    &mut pins,
+                    #[cfg(feature = "lighting")]
+                    led_sender,
+                    &MASTER_ADDRESS,
+                )
+                .await
             }
         };
 

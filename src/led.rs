@@ -1,5 +1,5 @@
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Receiver;
+use embassy_sync::channel::{Channel, Sender};
 use embassy_time::{Duration, Timer};
 use futures::future::{select, Either};
 use futures::pin_mut;
@@ -140,10 +140,6 @@ where
     }
 }
 
-pub struct Strips {
-    top_strip: LedStrip<57>,
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, defmt::Format)]
 pub enum AnimationType {
@@ -159,13 +155,21 @@ enum Animation {
     Rainbow { hue: f32 },
 }
 
+pub type LedSender = Sender<'static, ThreadModeRawMutex, AnimationType, 3>;
+
+static LED_CHANNEL: Channel<ThreadModeRawMutex, AnimationType, 3> = Channel::new();
+
+pub fn led_sender() -> LedSender {
+    LED_CHANNEL.sender()
+}
+
 #[embassy_executor::task]
-pub async fn led_task(mut spis: Spis<'static>, receiver: Receiver<'static, ThreadModeRawMutex, AnimationType, 3>) -> ! {
+pub async fn led_task(mut spis: Spis<'static>) -> ! {
     let mut animation = Animation::None;
-    let mut strips = Strips {
-        top_strip: LedStrip::new(),
-    };
+    let mut top_strip: LedStrip<57> = LedStrip::new();
     let mut previous_time = embassy_time::Instant::now();
+
+    let receiver = LED_CHANNEL.receiver();
 
     loop {
         let receive_future = receiver.recv();
@@ -185,7 +189,7 @@ pub async fn led_task(mut spis: Spis<'static>, receiver: Receiver<'static, Threa
                             let (red, green, blue) = color.into_components();
                             let led = Led::rgb(red, green, blue);
 
-                            strips.top_strip.insert_uniform_barrier(led);
+                            top_strip.insert_uniform_barrier(led);
                         }
                         AnimationType::IndicateMaster { is_master } => {
                             animation = Animation::IndicateMaster { is_master };
@@ -195,7 +199,7 @@ pub async fn led_task(mut spis: Spis<'static>, receiver: Receiver<'static, Threa
                                 false => Led::rgb(0.0, 0.0, 0.0),
                             };
 
-                            strips.top_strip.insert_uniform_barrier(led);
+                            top_strip.insert_uniform_barrier(led);
                         }
                         AnimationType::Rainbow => {
                             animation = Animation::Rainbow { hue: 0.0 };
@@ -205,7 +209,7 @@ pub async fn led_task(mut spis: Spis<'static>, receiver: Receiver<'static, Threa
                             let (red, green, blue) = color.into_linear().into_components();
                             let led = Led::rgb(red, green, blue);
 
-                            strips.top_strip.insert_uniform_barrier(led);
+                            top_strip.insert_uniform_barrier(led);
                         }
                     }
                     break;
@@ -215,14 +219,14 @@ pub async fn led_task(mut spis: Spis<'static>, receiver: Receiver<'static, Threa
                     let elapsed_time = (current_time - previous_time).as_millis() as f32 / 1000.0;
                     previous_time = current_time;
 
-                    if strips.top_strip.update_barrier(elapsed_time) {
+                    if top_strip.update_barrier(elapsed_time) {
                         if let Some(spi) = &mut spis.spi_2 {
-                            defmt::unwrap!(spi.write(&strips.top_strip.get_barrier_led_data()).await);
+                            defmt::unwrap!(spi.write(&top_strip.get_barrier_led_data()).await);
                         }
                     } else {
                         match &mut animation {
                             Animation::None => {
-                                strips.top_strip.set_uniform_color(Led::rgb(0.0, 0.0, 0.0));
+                                top_strip.set_uniform_color(Led::rgb(0.0, 0.0, 0.0));
                             }
                             Animation::Disconnected { offset } => {
                                 *offset += 3.0 * elapsed_time;
@@ -232,7 +236,7 @@ pub async fn led_task(mut spis: Spis<'static>, receiver: Receiver<'static, Threa
                                 let (red, green, blue) = color.into_components();
                                 let led = Led::rgb(red, green, blue);
 
-                                strips.top_strip.set_uniform_color(led);
+                                top_strip.set_uniform_color(led);
                             }
                             Animation::IndicateMaster { is_master } => {
                                 let led = match is_master {
@@ -240,7 +244,7 @@ pub async fn led_task(mut spis: Spis<'static>, receiver: Receiver<'static, Threa
                                     false => Led::rgb(0.0, 0.0, 0.0),
                                 };
 
-                                strips.top_strip.set_uniform_color(led);
+                                top_strip.set_uniform_color(led);
                             }
                             Animation::Rainbow { hue } => {
                                 *hue += 30.0 * elapsed_time;
@@ -250,12 +254,12 @@ pub async fn led_task(mut spis: Spis<'static>, receiver: Receiver<'static, Threa
                                 let (red, green, blue) = color.into_linear().into_components();
                                 let led = Led::rgb(red, green, blue);
 
-                                strips.top_strip.set_uniform_color(led);
+                                top_strip.set_uniform_color(led);
                             }
                         }
 
                         if let Some(spi) = &mut spis.spi_2 {
-                            defmt::unwrap!(spi.write(&strips.top_strip.get_led_data()).await);
+                            defmt::unwrap!(spi.write(&top_strip.get_led_data()).await);
                         }
                     }
 
