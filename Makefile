@@ -12,9 +12,9 @@ clean:
 
 compile:
 ifeq (${CHANNEL}, "release")
-	DEFMT_LOG="trace" cargo build --no-default-features --features="${KEYBOARD} ${SIDE} auto-reset" --release
+	DEFMT_LOG="trace" KEYBOARD=${KEYBOARD} cargo build --no-default-features --features="${SIDE} auto-reset" --release
 else
-	DEFMT_LOG="trace" cargo build --no-default-features --features="${KEYBOARD} ${SIDE} auto-reset"
+	DEFMT_LOG="trace" KEYBOARD=${KEYBOARD} cargo build --no-default-features --features="${SIDE} auto-reset"
 endif
 
 binary:

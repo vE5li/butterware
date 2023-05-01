@@ -13,6 +13,7 @@ use embassy_nrf::config::{HfclkSource, LfclkSource};
 use embassy_nrf::interrupt;
 use nrf_softdevice::ble::{set_address, Address};
 use nrf_softdevice::{raw, Flash, Softdevice};
+use procedural::{alias_used_keyboard, import_keyboards};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -26,11 +27,12 @@ mod keys;
 mod led;
 #[macro_use]
 mod interface;
-#[path = "../keyboards/mod.rs"]
-mod keyboards;
+
+// Import every .rs file in the specified directory (relative to the src folder)
+// into a module name keyboards.
+import_keyboards!("../keyboards");
 
 use ble::Server;
-use keyboards::Used;
 
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::interface::Keyboard;
@@ -49,6 +51,8 @@ async fn softdevice_task(sd: &'static Softdevice) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
+    alias_used_keyboard!(as Used);
+
     // First we get the peripherals access crate.
     let mut config = embassy_nrf::config::Config::default();
     config.gpiote_interrupt_priority = interrupt::Priority::P2;

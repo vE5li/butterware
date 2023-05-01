@@ -7,10 +7,7 @@ edition = "2021"
 left = []
 right = []
 auto-reset = []
-
-# Keyboards
-meboard = []
-default = ["meboard"]
+default = ["auto-reset"]
 
 [dependencies]
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd", features = ["nightly", "defmt", "nrf52840", "gpiote", "time-driver-rtc1"] }
@@ -18,6 +15,8 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6
 embassy-macros = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd" }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd" }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd", features = ["nightly", "defmt", "defmt-timestamp-uptime"] }
+
+procedural = { path = "procedural/" }
 
 cortex-m = "0.7.2"
 cortex-m-rt = "0.7.0"
