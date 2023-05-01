@@ -21,10 +21,10 @@ mod ble;
 mod flash;
 mod future;
 mod hardware;
-mod split;
 #[allow(unused)]
 mod keys;
 mod led;
+mod split;
 #[macro_use]
 mod interface;
 
@@ -114,10 +114,7 @@ async fn main(spawner: Spawner) -> ! {
         .add_name(Used::DEVICE_NAME)
         .add_appearance(KEYBOARD_ICON);
 
-    #[rustfmt::skip]
-    let scan_data = &[
-        0x03, 0x03, 0x09, 0x18,
-    ];
+    const SCAN_DATA: &[u8] = &[0x03, 0x03, 0x09, 0x18];
 
     static BONDER: StaticCell<Bonder> = StaticCell::new();
     let bonder = BONDER.init(Bonder::new());
@@ -143,7 +140,7 @@ async fn main(spawner: Spawner) -> ! {
         // right as peripheral. Afterwards the will randomly determine which side is the
         // master and drop the connection again.
         #[cfg(feature = "left")]
-        let is_master = split::advertise_determine_master(softdevice, &master_server, ADVERTISING_DATA.get_slice(), scan_data).await;
+        let is_master = split::advertise_determine_master(softdevice, &master_server, ADVERTISING_DATA.get_slice(), SCAN_DATA).await;
         #[cfg(feature = "right")]
         let is_master = split::connect_determine_master(softdevice, &Used::LEFT_ADDRESS).await;
 
@@ -159,7 +156,7 @@ async fn main(spawner: Spawner) -> ! {
                     &key_state_server,
                     bonder,
                     ADVERTISING_DATA.get_slice(),
-                    scan_data,
+                    SCAN_DATA,
                     &mut pins,
                     led_sender,
                 )
