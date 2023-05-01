@@ -3,6 +3,8 @@ CHANNEL = debug
 KEYBOARD = meboard
 DIRECTORY := target/thumbv7em-none-eabihf/${CHANNEL}
 
+DEVICE = /dev/sdb
+
 all: compile binary bootloader
 
 clean:
@@ -21,5 +23,5 @@ binary:
 bootloader:
 	python tools/uf2conv.py -c -b 0x27000 -f 0xADA52840 ${DIRECTORY}/firmware.bin -o ${DIRECTORY}/firmware.uf2
 
-flash:
-	sudo bash tools/flash_helper.sh ${CHANNEL}
+flash: compile binary bootloader
+	sudo mount ${DEVICE} /mnt && sudo cp target/thumbv7em-none-eabihf/debug/firmware.uf2 /mnt/ && sudo umount /mnt
