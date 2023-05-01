@@ -167,7 +167,7 @@ async fn main(spawner: Spawner) -> ! {
                     SCAN_DATA,
                     &mut pins,
                     #[cfg(feature = "lighting")]
-                    led_sender,
+                    &led_sender,
                 )
                 .await
             }
@@ -181,9 +181,9 @@ async fn main(spawner: Spawner) -> ! {
                     softdevice,
                     &flash_server,
                     &mut pins,
-                    #[cfg(feature = "lighting")]
-                    led_sender,
                     &MASTER_ADDRESS,
+                    #[cfg(feature = "lighting")]
+                    &led_sender,
                 )
                 .await
             }
@@ -191,7 +191,10 @@ async fn main(spawner: Spawner) -> ! {
 
         defmt::error!("halves disconnected");
 
+        #[cfg(all(feature = "lighting", not(feature = "auto-reset")))]
+        led_sender.send(AnimationType::Disconnected).await;
+
         #[cfg(not(feature = "auto-reset"))]
-        run_disconnected_animation().await;
+        futures::future::pending::<()>().await;
     }
 }

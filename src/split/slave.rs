@@ -17,8 +17,8 @@ pub async fn do_slave<'a, K>(
     softdevice: &Softdevice,
     flash_server: &FlashServer,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    #[cfg(feature = "lighting")] led_sender: LedSender,
     address: &Address,
+    #[cfg(feature = "lighting")] led_sender: &LedSender,
 ) -> Result<Infallible, HalfDisconnected>
 where
     K: Keyboard,
@@ -63,7 +63,7 @@ where
 async fn slave_connection<'a, K>(
     state: &mut SlaveState<K>,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    #[cfg(feature = "lighting")] led_sender: LedSender,
+    #[cfg(feature = "lighting")] led_sender: &LedSender,
     master_connection: Connection,
     flash_server: &FlashServer,
 ) -> Result<Infallible, HalfDisconnected>

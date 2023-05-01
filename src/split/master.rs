@@ -23,7 +23,7 @@ pub async fn do_master<'a, K>(
     adv_data: &[u8],
     scan_data: &[u8],
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    #[cfg(feature = "lighting")] led_sender: LedSender,
+    #[cfg(feature = "lighting")] led_sender: &LedSender,
 ) -> Result<Infallible, HalfDisconnected>
 where
     K: Keyboard,
@@ -88,7 +88,7 @@ where
             &mut keyboard_state,
             pins,
             #[cfg(feature = "lighting")]
-            &led_sender,
+            led_sender,
             server,
             key_state_server,
             &slave_connection,
