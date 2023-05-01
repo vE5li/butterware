@@ -29,7 +29,7 @@ mod split;
 #[macro_use]
 mod interface;
 
-// Import every .rs file in the specified directory (relative to the src folder)
+// Import every *.rs file in the specified directory (relative to the src folder)
 // into a module named keyboards.
 import_keyboards!("../keyboards");
 
