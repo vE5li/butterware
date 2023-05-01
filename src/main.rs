@@ -13,7 +13,7 @@ use embassy_nrf::config::{HfclkSource, LfclkSource};
 use embassy_nrf::interrupt;
 use nrf_softdevice::ble::{set_address, Address};
 use nrf_softdevice::{raw, Flash, Softdevice};
-use procedural::{alias_used_keyboard, import_keyboards};
+use procedural::{alias_keyboard, import_keyboards};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -29,7 +29,7 @@ mod split;
 mod interface;
 
 // Import every .rs file in the specified directory (relative to the src folder)
-// into a module name keyboards.
+// into a module named keyboards.
 import_keyboards!("../keyboards");
 
 use ble::Server;
@@ -51,7 +51,9 @@ async fn softdevice_task(sd: &'static Softdevice) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
-    alias_used_keyboard!(as Used);
+    // Get the keyboard selected by the user from environment variables and alias it
+    // as `Used`.
+    alias_keyboard!(as Used);
 
     // First we get the peripherals access crate.
     let mut config = embassy_nrf::config::Config::default();
@@ -137,8 +139,9 @@ async fn main(spawner: Spawner) -> ! {
         led_sender.send(AnimationType::Disconnected).await;
 
         // Both sides will connect, initially with the left side as the server and the
-        // right as peripheral. Afterwards the will randomly determine which side is the
-        // master and drop the connection again.
+        // right as peripheral. Once they are connected, they will generate a random
+        // number to determine which will be the master and drop the
+        // connection again.
         #[cfg(feature = "left")]
         let is_master = split::advertise_determine_master(softdevice, &master_server, ADVERTISING_DATA.get_slice(), SCAN_DATA).await;
         #[cfg(feature = "right")]

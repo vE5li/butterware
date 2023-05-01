@@ -18,7 +18,7 @@ struct Input {
 }
 
 #[proc_macro]
-pub fn alias_used_keyboard(input: TokenStream) -> TokenStream {
+pub fn alias_keyboard(input: TokenStream) -> TokenStream {
     let Input { ident, .. } = syn::parse_macro_input!(input as Input);
 
     colored::control::set_override(true);
