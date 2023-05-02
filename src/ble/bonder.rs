@@ -2,9 +2,9 @@ use core::cell::{Cell, RefCell};
 
 use nrf_softdevice::ble::gatt_server::set_sys_attrs;
 use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
-use nrf_softdevice::ble::{gatt_server, Address, Connection, EncryptionInfo, IdentityKey, MasterId};
+use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
 
-use crate::flash::{self, BondSlot, FlashOperation, Peer, SystemAttributes, FLASH_SETTINGS};
+use crate::flash::{self, BondSlot, FlashOperation, Peer, SystemAttributes, FLASH_SETTINGS, NO_ADDRESS};
 
 pub struct Bonder {
     peer: Cell<Option<Peer>>,
@@ -59,7 +59,7 @@ impl SecurityHandler for Bonder {
             .settings
             .bonds
             .iter()
-            .position(|bond| bond.peer.peer_id.addr == Address::default());
+            .position(|bond| bond.peer.peer_id.addr == NO_ADDRESS);
 
         match free_slot {
             Some(free_slot) => defmt::trace!("Found free slot at {}", free_slot),

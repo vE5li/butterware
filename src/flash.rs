@@ -29,6 +29,11 @@ pub static mut FLASH_SETTINGS: MaybeUninit<AlignedFlashSettings> = MaybeUninit::
 pub static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
 pub static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
 
+// The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
+// because it is known to cause problems with most operating systems. So we
+// assume that any address only consisting of zeros is not valid.
+pub const NO_ADDRESS: Address = Address { flags: 0, bytes: [0; 6] };
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, defmt::Format)]
 pub struct BondSlot(pub usize);
@@ -160,10 +165,7 @@ pub async fn flash_task(flash: Flash) {
                 write_to_flash(&mut flash, address, settings, true).await;
             }
             FlashOperation::RemovePeer(slot) => {
-                // The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
-                // because it is known to cause problems with most operating systems. So we
-                // assume that any slot with an address only consisting of zeros is empty.
-                if settings.settings.bonds[slot.0].peer.peer_id.addr != Address::default() {
+                if settings.settings.bonds[slot.0].peer.peer_id.addr != NO_ADDRESS {
                     settings.settings.bonds[slot.0] = unsafe { MaybeUninit::zeroed().assume_init() };
 
                     // Since all we are doing is setting the bits of a peer to 0, we can write

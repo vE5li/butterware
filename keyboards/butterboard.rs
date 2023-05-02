@@ -1,3 +1,4 @@
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_nrf::gpio::Pin;
 use embassy_nrf::{interrupt, Peripherals};
 
@@ -77,15 +78,15 @@ impl Keyboard for Butterboard {
         let power_pin = peripherals.P0_13.degrade();
 
         // Set up SPI
-        let interrupt_3 = interrupt::take!(SPIM3);
+        let interrupt_3 = unsafe { interrupt::SPIM3::steal() };
         interrupt_3.set_priority(interrupt::Priority::P2);
 
         // Set up SPI
-        let interrupt_2 = interrupt::take!(SPIM2_SPIS2_SPI2);
+        let interrupt_2 = unsafe { interrupt::SPIM2_SPIS2_SPI2::steal() };
         interrupt_2.set_priority(interrupt::Priority::P2);
 
         // Set up SPI
-        let interrupt_1 = interrupt::take!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+        let interrupt_1 = unsafe { interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1::steal() };
         interrupt_1.set_priority(interrupt::Priority::P2);
 
         ScanPinConfig {

@@ -1,6 +1,6 @@
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
-use embassy_nrf::peripherals::{SPI2, SPI3, TWISPI1};
-use embassy_nrf::spim::{Config, Spim};
+use embassy_nrf::peripherals::{SPI2, SPI3, TWISPI1, self};
+use embassy_nrf::spim::{Config, Spim, self};
 use embassy_nrf::spis::MODE_1;
 
 use crate::interface::UnwrapInfelliable;
@@ -43,6 +43,12 @@ pub struct ScanPinConfig<const C: usize, const R: usize> {
     pub spi_1_config: Option<Spi1Config>,
 }
 
+embassy_nrf::bind_interrupts!(struct Irqs {
+    SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+    SPIM2_SPIS2_SPI2 => spim::InterruptHandler<peripherals::SPI2>;
+    SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1 => spim::InterruptHandler<peripherals::TWISPI1>;
+});
+
 impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
     pub fn to_pins(self) -> (ScanPins<'static, C, R>, Spis<'static>) {
         let columns = self
@@ -69,7 +75,7 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
         let spi = self.spi_config.map(|config| {
             Spim::new_txonly(
                 config.interface,
-                config.interrupt,
+                Irqs,
                 config.clock_pin,
                 config.mosi_pin,
                 config_foo,
@@ -84,7 +90,7 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
         let spi_2 = self.spi_2_config.map(|config| {
             Spim::new_txonly(
                 config.interface,
-                config.interrupt,
+                Irqs,
                 config.clock_pin,
                 config.mosi_pin,
                 config_foo,
@@ -99,7 +105,7 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
         let spi_1 = self.spi_1_config.map(|config| {
             Spim::new_txonly(
                 config.interface,
-                config.interrupt,
+                Irqs,
                 config.clock_pin,
                 config.mosi_pin,
                 config_foo,

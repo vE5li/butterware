@@ -11,11 +11,12 @@ lighting = []
 default = ["auto-reset", "lighting"]
 
 [dependencies]
-embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd", features = ["nightly", "defmt", "nrf52840", "gpiote", "time-driver-rtc1"] }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd", features = ["nightly", "defmt", "integrated-timers"] }
-embassy-macros = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd" }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd" }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "dadd6aafe9d5239b5f9718f446649a1de0d0cbcd", features = ["nightly", "defmt", "defmt-timestamp-uptime"] }
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88", features = ["nightly", "defmt", "nrf52840", "gpiote", "time-driver-rtc1", "nfc-pins-as-gpio"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "nightly", "defmt", "integrated-timers"] }
+embassy-macros = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88", features = ["nightly", "defmt", "defmt-timestamp-uptime"] }
+embassy-cortex-m = { git = "https://github.com/embassy-rs/embassy", rev = "0dea7b02d6d320efabede5d7e5470bb0d42cfa88", features = ["prio-bits-3"]}
 
 procedural = { path = "procedural/" }
 
@@ -24,8 +25,8 @@ cortex-m-rt = "0.7.0"
 defmt = "=0.3.2"
 defmt-rtt = "0.4.0"
 panic-probe = { version = "0.3", features= ["print-defmt"] }
-nrf-softdevice = { version = "0.1.0", path = "../nrf-softdevice/nrf-softdevice", features = ["nightly", "defmt", "nrf52840", "s140", "ble-peripheral", "ble-central", "critical-section-impl", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "ble-sec"] }
-nrf-softdevice-s140 = { version = "0.1.1", path = "../nrf-softdevice/nrf-softdevice-s140" }
+nrf-softdevice = { git = "https://github.com/vE5li/nrf-softdevice", rev = "0dd06e65a1c306bae34953cb0d504cd7ffb2c274", features = ["nightly", "defmt", "nrf52840", "s140", "ble-peripheral", "ble-central", "critical-section-impl", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "ble-sec"] }
+nrf-softdevice-s140 = { git = "https://github.com/vE5li/nrf-softdevice", rev = "0dd06e65a1c306bae34953cb0d504cd7ffb2c274"  }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.4.0"
 futures = { version = "0.3.5", default-features = false }

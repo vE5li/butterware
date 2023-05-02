@@ -68,7 +68,7 @@ where
                     break defmt::unwrap!(advertise_result);
                 }
                 Either::Right((_, passed_advertise_future)) => {
-                    slave_connection.check_connected().map_err(|_| HalfDisconnected)?;
+                    slave_connection.handle().ok_or(HalfDisconnected)?;
                     advertise_future = passed_advertise_future;
                     continue;
                 }
@@ -141,7 +141,6 @@ where
                             let flash_operation = flash_operations.recv().await;
 
                             defmt::info!("Received flash operation for client");
-
                             defmt::info!("Setting flash operation for client to {:?}", flash_operation);
 
                             defmt::unwrap!(flash_client.flash_operation_write(&flash_operation).await);
