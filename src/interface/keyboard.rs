@@ -23,8 +23,6 @@ where
 {
     const DEVICE_NAME: &'static [u8; Self::NAME_LENGTH];
 
-    const MATRIX: [usize; Self::COLUMNS * Self::ROWS * 2];
-
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]];
 
     const LEFT_ADDRESS: Address = Address::new(AddressType::Public, [6, 2, 3, 4, 5, 9]);

@@ -119,7 +119,7 @@ where
 
             for key_index in 0..K::KEY_COUNT * 2 {
                 // Get layer index and optional tap key.
-                let (layer_index, tap_timer) = match active_layer[K::MATRIX[key_index]] {
+                let (layer_index, tap_timer) = match active_layer[key_index] {
                     Mapping::Key(..) => continue,
                     Mapping::Layer(layer_index) => (layer_index, None),
                     Mapping::TapLayer(layer_index, _) => (layer_index, Some(now())),

@@ -9,16 +9,39 @@ pub struct Meboard;
 
 register_layers!(Meboard, MeboardLayers, [BASE, SPECIAL, TEST]);
 
+#[rustfmt::skip]
+macro_rules! new_layer {
+    (
+        $K0:expr,  $K1:expr,  $K2:expr,  $K3:expr,  $K4:expr,  $K5:expr,  $K6:expr,  $K7:expr,  $K8:expr,  $K9:expr,
+        $K10:expr, $K11:expr, $K12:expr, $K13:expr, $K14:expr, $K15:expr, $K16:expr, $K17:expr, $K18:expr, $K19:expr,
+        $K20:expr, $K21:expr, $K22:expr, $K23:expr, $K24:expr, $K25:expr, $K26:expr, $K27:expr, $K28:expr, $K29:expr,
+        $K30:expr, $K31:expr, $K32:expr, $K33:expr, $K34:expr, $K35:expr, $K36:expr, $K37:expr, $K38:expr, $K39:expr,
+    ) => {
+        [
+            $K9, $K19, $K29, $K39,
+            $K8, $K18, $K28, $K38,
+            $K7, $K17, $K27, $K37,
+            $K6, $K16, $K26, $K36,
+            $K5, $K15, $K25, $K35,
+            $K4, $K14, $K24, $K34,
+            $K3, $K13, $K23, $K33,
+            $K2, $K12, $K22, $K32,
+            $K1, $K11, $K21, $K31,
+            $K0, $K10, $K20, $K30,
+        ]
+    };
+}
+
 impl Meboard {
     #[rustfmt::skip]
-    const BASE: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = [
+    const BASE: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = new_layer![
         Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Z, X, C, D, Mapping::tap_layer(MeboardLayers::TEST, V), K, H, H, H, Mapping::tap_layer(MeboardLayers::TEST, H),
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
     #[rustfmt::skip]
-    const SPECIAL: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = [
+    const SPECIAL: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = new_layer![
         N1, N2, N3, N4, N5, N6, N7, N8, N9, N0,
         A, R, S, T, G, M, N, E, I, O,
         Z, X, C, D, V, K, H, H, H, H,
@@ -26,7 +49,7 @@ impl Meboard {
     ];
     const SPE_SPC: Mapping = Mapping::tap_layer(MeboardLayers::SPECIAL, SPACE);
     #[rustfmt::skip]
-    const TEST: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = [
+    const TEST: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = new_layer![
         Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(MeboardLayers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
@@ -43,19 +66,6 @@ impl Scannable for Meboard {
 impl Keyboard for Meboard {
     const DEVICE_NAME: &'static [u8; Self::NAME_LENGTH] = b"Meboard";
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]] = MeboardLayers::LAYER_LOOKUP;
-    #[rustfmt::skip]
-    const MATRIX: [usize; Self::COLUMNS * Self::ROWS * 2] = [
-        9, 19, 29, 39,
-        8, 18, 28, 38,
-        7, 17, 27, 37,
-        6, 16, 26, 36,
-        5, 15, 25, 35,
-        4, 14, 24, 34,
-        3, 13, 23, 33,
-        2, 12, 22, 32,
-        1, 11, 21, 31,
-        0, 10, 20, 30,
-    ];
 
     fn new() -> Self {
         Self

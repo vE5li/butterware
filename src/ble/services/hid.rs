@@ -410,7 +410,7 @@ impl HidService {
                     break;
                 }
 
-                let key = K::LAYER_LOOKUP[active_layer][K::MATRIX[index]].keycode();
+                let key = K::LAYER_LOOKUP[active_layer][index].keycode();
                 input_report[offset] = key;
                 offset += 1;
             }
