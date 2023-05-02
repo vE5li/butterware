@@ -1,6 +1,6 @@
 SIDE = left
 CHANNEL = debug
-KEYBOARD = meboard
+KEYBOARD = butterboard
 DIRECTORY := target/thumbv7em-none-eabihf/${CHANNEL}
 
 DEVICE = /dev/sdb

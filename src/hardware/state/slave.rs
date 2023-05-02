@@ -6,7 +6,6 @@ use crate::interface::Keyboard;
 pub struct SlaveState<K>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
@@ -17,7 +16,6 @@ where
 impl<K> KeyState<K> for SlaveState<K>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
@@ -35,7 +33,6 @@ where
 impl<K> SlaveState<K>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {

@@ -27,7 +27,6 @@ pub async fn do_master<'a, K>(
 ) -> Result<Infallible, HalfDisconnected>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
@@ -114,7 +113,6 @@ async fn master_connection<'a, K>(
 ) -> Result<(), HalfDisconnected>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {

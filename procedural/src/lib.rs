@@ -23,7 +23,7 @@ pub fn alias_keyboard(input: TokenStream) -> TokenStream {
 
     colored::control::set_override(true);
 
-    let name = proc_macro::tracked_env::var("KEYBOARD").unwrap_or("meboard".to_owned());
+    let name = proc_macro::tracked_env::var("KEYBOARD").expect("No board specified. Try setting the KEYBOARD environment variable.");
 
     println!("[{}] Building for {}", "Build system".red().bold(), name.yellow());
 

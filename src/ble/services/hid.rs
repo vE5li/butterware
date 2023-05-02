@@ -390,7 +390,6 @@ impl HidService {
     pub fn send_input_report<K>(&self, connection: &Connection, active_layer: usize, key_state: u64)
     where
         K: Keyboard,
-        [(); <K as Scannable>::NAME_LENGTH]:,
         [(); <K as Scannable>::MAXIMUM_ACTIVE_LAYERS]:,
         [(); <K as Scannable>::COLUMNS * <K as Scannable>::ROWS * 2]:,
     {

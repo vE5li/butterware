@@ -6,7 +6,6 @@ use crate::interface::Keyboard;
 pub struct DebouncedKey<K>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
@@ -19,7 +18,6 @@ where
 impl<K> DebouncedKey<K>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {

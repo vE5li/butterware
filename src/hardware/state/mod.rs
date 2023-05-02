@@ -11,7 +11,6 @@ use crate::interface::Keyboard;
 pub trait KeyState<K>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
@@ -25,7 +24,6 @@ where
 pub async fn do_scan<'a, K>(state: &mut impl KeyState<K>, pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>) -> u64
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {

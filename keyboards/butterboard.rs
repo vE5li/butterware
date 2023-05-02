@@ -5,9 +5,9 @@ use crate::hardware::{ScanPinConfig, SpiConfig};
 use crate::interface::{Keyboard, Scannable};
 use crate::keys::*;
 
-pub struct Meboard;
+pub struct Butterboard;
 
-register_layers!(Meboard, MeboardLayers, [BASE, SPECIAL, TEST]);
+register_layers!(Butterboard, ButterboardLayers, [BASE, SPECIAL, TEST]);
 
 #[rustfmt::skip]
 macro_rules! new_layer {
@@ -32,40 +32,39 @@ macro_rules! new_layer {
     };
 }
 
-impl Meboard {
+impl Butterboard {
     #[rustfmt::skip]
-    const BASE: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = new_layer![
+    const BASE: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
         Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
-        Z, X, C, D, Mapping::tap_layer(MeboardLayers::TEST, V), K, H, H, H, Mapping::tap_layer(MeboardLayers::TEST, H),
+        Z, X, C, D, Mapping::tap_layer(ButterboardLayers::TEST, V), K, H, H, H, Mapping::tap_layer(ButterboardLayers::TEST, H),
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
     #[rustfmt::skip]
-    const SPECIAL: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = new_layer![
+    const SPECIAL: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
         N1, N2, N3, N4, N5, N6, N7, N8, N9, N0,
         A, R, S, T, G, M, N, E, I, O,
         Z, X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
     ];
-    const SPE_SPC: Mapping = Mapping::tap_layer(MeboardLayers::SPECIAL, SPACE);
+    const SPE_SPC: Mapping = Mapping::tap_layer(ButterboardLayers::SPECIAL, SPACE);
     #[rustfmt::skip]
-    const TEST: [Mapping; <Meboard as Scannable>::COLUMNS * <Meboard as Scannable>::ROWS * 2] = new_layer![
+    const TEST: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
         Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
-        Mapping::tap_layer(MeboardLayers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
+        Mapping::tap_layer(ButterboardLayers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
 }
 
-impl Scannable for Meboard {
+impl Scannable for Butterboard {
     const COLUMNS: usize = 5;
-    const NAME_LENGTH: usize = 7;
     const ROWS: usize = 4;
 }
 
-impl Keyboard for Meboard {
-    const DEVICE_NAME: &'static [u8; Self::NAME_LENGTH] = b"Meboard";
-    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]] = MeboardLayers::LAYER_LOOKUP;
+impl Keyboard for Butterboard {
+    const DEVICE_NAME: &'static [u8] = b"Butterboard";
+    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]] = ButterboardLayers::LAYER_LOOKUP;
 
     fn new() -> Self {
         Self

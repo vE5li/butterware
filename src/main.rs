@@ -29,8 +29,8 @@ mod split;
 #[macro_use]
 mod interface;
 
-// Import every *.rs file in the specified directory (relative to the src folder)
-// into a module named keyboards.
+// Import every *.rs file in the specified directory (relative to the src
+// folder) into a module named keyboards.
 import_keyboards!("../keyboards");
 
 use ble::Server;
@@ -65,8 +65,8 @@ async fn main(spawner: Spawner) -> ! {
     config.lfclk_source = LfclkSource::ExternalXtal;
     let peripherals = embassy_nrf::init(config);
 
-    let mut meboard = Used::new();
-    let (mut pins, spis) = meboard.init_peripherals(peripherals).to_pins();
+    let mut keyboard = Used::new();
+    let (mut pins, spis) = keyboard.init_peripherals(peripherals).to_pins();
 
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
@@ -89,7 +89,7 @@ async fn main(spawner: Spawner) -> ! {
             _bitfield_1: raw::ble_gap_cfg_role_count_t::new_bitfield_1(0),
         }),
         gap_device_name: Some(raw::ble_gap_cfg_device_name_t {
-            p_value: Used::DEVICE_NAME as *const u8 as _,
+            p_value: Used::DEVICE_NAME.as_ptr() as *mut _,
             current_len: Used::DEVICE_NAME.len() as u16,
             max_len: Used::DEVICE_NAME.len() as u16,
             write_perm: unsafe { core::mem::zeroed() },

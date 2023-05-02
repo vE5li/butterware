@@ -22,7 +22,6 @@ pub async fn do_slave<'a, K>(
 ) -> Result<Infallible, HalfDisconnected>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
@@ -69,7 +68,6 @@ async fn slave_connection<'a, K>(
 ) -> Result<Infallible, HalfDisconnected>
 where
     K: Keyboard,
-    [(); K::NAME_LENGTH]:,
     [(); K::MAXIMUM_ACTIVE_LAYERS]:,
     [(); K::COLUMNS * K::ROWS * 2]:,
 {

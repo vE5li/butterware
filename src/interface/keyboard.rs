@@ -9,19 +9,16 @@ pub trait Scannable {
 
     const ROWS: usize;
 
-    const NAME_LENGTH: usize;
-
     // Needs to be at least 1.
     const MAXIMUM_ACTIVE_LAYERS: usize = 6;
 }
 
 pub trait Keyboard: Scannable
 where
-    [(); Self::NAME_LENGTH]:,
     [(); Self::MAXIMUM_ACTIVE_LAYERS]:,
     [(); Self::COLUMNS * Self::ROWS * 2]:,
 {
-    const DEVICE_NAME: &'static [u8; Self::NAME_LENGTH];
+    const DEVICE_NAME: &'static [u8];
 
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]];
 
@@ -47,7 +44,6 @@ pub trait KeyboardExtension {
 
 impl<T: Keyboard> KeyboardExtension for T
 where
-    [(); T::NAME_LENGTH]:,
     [(); T::MAXIMUM_ACTIVE_LAYERS]:,
     [(); T::COLUMNS * T::ROWS * 2]:,
 {
