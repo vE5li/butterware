@@ -51,8 +51,6 @@ where
     slave_connection(
         &mut keyboard_state,
         pins,
-        #[cfg(feature = "lighting")]
-        led_sender,
         master_connection,
         flash_server,
     )
@@ -62,7 +60,6 @@ where
 async fn slave_connection<'a, K>(
     state: &mut SlaveState<K>,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    #[cfg(feature = "lighting")] led_sender: &LedSender,
     master_connection: Connection,
     flash_server: &FlashServer,
 ) -> Result<Infallible, HalfDisconnected>

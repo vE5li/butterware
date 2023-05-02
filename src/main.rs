@@ -156,7 +156,7 @@ async fn main(spawner: Spawner) -> ! {
 
         defmt::debug!("is master: {}", is_master);
 
-        match is_master {
+        let _ = match is_master {
             true => {
                 split::do_master::<Used>(
                     softdevice,

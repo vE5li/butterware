@@ -1,5 +1,3 @@
-use core::cell::{Cell, RefCell};
-
 use nrf_softdevice::ble::gatt_server::set_sys_attrs;
 use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
 use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
@@ -7,8 +5,6 @@ use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, 
 use crate::flash::{self, BondSlot, FlashOperation, Peer, SystemAttributes, FLASH_SETTINGS, NO_ADDRESS};
 
 pub struct Bonder {
-    peer: Cell<Option<Peer>>,
-    sys_attrs: RefCell<heapless::Vec<u8, 62>>,
     sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, crate::flash::FlashOperation, 3>,
     slave_sender:
         embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, crate::flash::FlashOperation, 3>,
@@ -17,8 +13,6 @@ pub struct Bonder {
 impl Bonder {
     pub fn new() -> Self {
         Self {
-            peer: Cell::new(None),
-            sys_attrs: Default::default(),
             sender: flash::FLASH_OPERATIONS.sender(),
             slave_sender: flash::SLAVE_FLASH_OPERATIONS.sender(),
         }

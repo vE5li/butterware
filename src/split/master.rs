@@ -86,8 +86,6 @@ where
         master_connection(
             &mut keyboard_state,
             pins,
-            #[cfg(feature = "lighting")]
-            led_sender,
             server,
             key_state_server,
             &slave_connection,
@@ -105,7 +103,6 @@ where
 async fn master_connection<'a, K>(
     state: &mut MasterState<K>,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    #[cfg(feature = "lighting")] led_sender: &LedSender,
     server: &Server<'_>,
     key_state_server: &KeyStateServer,
     slave_connection: &Connection,

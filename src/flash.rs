@@ -12,6 +12,11 @@ use nrf_softdevice::Flash;
 #[cfg(feature = "lighting")]
 use crate::led::AnimationType;
 
+// The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
+// because it is known to cause problems with most operating systems. So we
+// assume that any address only consisting of zeros is not valid.
+pub const NO_ADDRESS: Address = Address { flags: 0, bytes: [0; 6] };
+
 const SETTINGS_PAGES: usize = 1;
 // The flash write needs to be aligned, so we use this wrapper struct
 const PADDING: usize = 3 - ((core::mem::size_of::<FlashSettings>() - 1) % 4);
@@ -28,11 +33,6 @@ pub static SETTINGS_FLASH: MaybeUninit<ReservedFlash> = MaybeUninit::uninit();
 pub static mut FLASH_SETTINGS: MaybeUninit<AlignedFlashSettings> = MaybeUninit::uninit();
 pub static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
 pub static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
-
-// The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
-// because it is known to cause problems with most operating systems. So we
-// assume that any address only consisting of zeros is not valid.
-pub const NO_ADDRESS: Address = Address { flags: 0, bytes: [0; 6] };
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, defmt::Format)]
