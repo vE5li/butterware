@@ -117,6 +117,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "butterware"
+version = "0.1.0"
+dependencies = [
+ "atomic-pool",
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt",
+ "defmt-rtt",
+ "elain",
+ "embassy-executor",
+ "embassy-macros",
+ "embassy-nrf",
+ "embassy-sync 0.1.0 (git+https://github.com/embassy-rs/embassy?rev=dadd6aafe9d5239b5f9718f446649a1de0d0cbcd)",
+ "embassy-time",
+ "embedded-storage",
+ "embedded-storage-async 0.4.0",
+ "fixed",
+ "futures",
+ "heapless",
+ "libm",
+ "nb 1.1.0",
+ "nrf-softdevice",
+ "nrf-softdevice-s140",
+ "palette",
+ "panic-probe",
+ "procedural",
+ "static_cell",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -502,36 +532,6 @@ name = "fast-srgb8"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd2e7510819d6fbf51a5545c8f922716ecfb14df168a3242f7d33e0239efe6a1"
-
-[[package]]
-name = "firmware"
-version = "0.1.0"
-dependencies = [
- "atomic-pool",
- "cortex-m",
- "cortex-m-rt",
- "defmt",
- "defmt-rtt",
- "elain",
- "embassy-executor",
- "embassy-macros",
- "embassy-nrf",
- "embassy-sync 0.1.0 (git+https://github.com/embassy-rs/embassy?rev=dadd6aafe9d5239b5f9718f446649a1de0d0cbcd)",
- "embassy-time",
- "embedded-storage",
- "embedded-storage-async 0.4.0",
- "fixed",
- "futures",
- "heapless",
- "libm",
- "nb 1.1.0",
- "nrf-softdevice",
- "nrf-softdevice-s140",
- "palette",
- "panic-probe",
- "procedural",
- "static_cell",
-]
 
 [[package]]
 name = "fixed"

@@ -18,10 +18,14 @@ else
 endif
 
 binary:
-	arm-none-eabi-objcopy -O binary ${DIRECTORY}/firmware ${DIRECTORY}/firmware.bin
+	arm-none-eabi-objcopy -O binary ${DIRECTORY}/butterware ${DIRECTORY}/butterware-${SIDE}.bin
 
 bootloader:
-	python tools/uf2conv.py -c -b 0x27000 -f 0xADA52840 ${DIRECTORY}/firmware.bin -o ${DIRECTORY}/firmware.uf2
+	python tools/uf2conv.py -c -b 0x27000 -f 0xADA52840 ${DIRECTORY}/butterware-${SIDE}.bin -o ${DIRECTORY}/butterware-${SIDE}.uf2
+
+both:
+	@make SIDE=left KEYBOARD=${KEYBOARD} CHANNEL=${CHANNEL} DIRECTORY=${DIRECTORY}
+	@make SIDE=right KEYBOARD=${KEYBOARD} CHANNEL=${CHANNEL} DIRECTORY=${DIRECTORY}
 
 flash: compile binary bootloader
-	sudo mount ${DEVICE} /mnt && sudo cp target/thumbv7em-none-eabihf/debug/firmware.uf2 /mnt/ && sudo umount /mnt
+	sudo mount ${DEVICE} /mnt && sudo cp target/thumbv7em-none-eabihf/debug/butterware-${SIDE}.uf2 /mnt/ && sudo umount /mnt
