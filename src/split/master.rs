@@ -11,8 +11,6 @@ use super::HalfDisconnected;
 use crate::ble::{Bonder, FlashServiceClient, KeyStateServer, KeyStateServerEvent, KeyStateServiceEvent, Server};
 use crate::hardware::{MasterState, ScanPins, TestBit};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
-#[cfg(feature = "lighting")]
-use crate::led::AnimationType;
 use crate::led::LedSender;
 
 pub async fn do_master<K>(
@@ -39,10 +37,8 @@ where
 
     defmt::info!("connected to other half");
 
-    //let animation = unsafe { flash::FLASH_SETTINGS.assume_init_ref()
-    // }.settings.animation;
     #[cfg(feature = "lighting")]
-    let animation = AnimationType::Rainbow;
+    let animation = unsafe { crate::flash::FLASH_SETTINGS.assume_init_ref() }.settings.animation;
 
     #[cfg(feature = "lighting")]
     led_sender.send(animation).await;
@@ -75,11 +71,6 @@ where
             }
         };
 
-        /*if let Some(spi) = &mut pins.spi_2 {
-            strips.top_strip.set_uniform_color(Led::rgb(255, 128, 0));
-            spi.write(&strips.top_strip.get_led_data()).await;
-        }*/
-
         defmt::warn!("connected");
 
         // Run until the host disconnects.
@@ -92,11 +83,6 @@ where
             &host_connection,
         )
         .await?;
-
-        /*if let Some(spi) = &mut pins.spi_2 {
-            strips.top_strip.set_uniform_color(Led::rgb(100, 100, 255));
-            spi.write(&strips.top_strip.get_led_data()).await;
-        }*/
     }
 }
 
@@ -116,8 +102,8 @@ where
     let host_future = gatt_server::run(host_connection, server, |_| {});
     pin_mut!(host_future);
 
-    let flash_operations = crate::flash::SLAVE_FLASH_OPERATIONS.receiver();
     let flash_client: FlashServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
+    let flash_operations = crate::flash::slave_flash_receiver();
 
     loop {
         let inner_future = async {
@@ -196,9 +182,13 @@ where
 
                 // If there are any, send the input once with the injected keys.
                 if injected_keys != 0 {
+                    //let input_report = InputReport::new::<K>(active_layer, key_state | injected_keys);
+                    //defmt::unwrap!(server.hid_service.input_report_notify(&host_connection, &input_report));
                     send_input_report::<K>(server, &host_connection, active_layer, key_state | injected_keys);
                 }
 
+                //let input_report = InputReport::new::<K>(active_layer, key_state);
+                //defmt::unwrap!(server.hid_service.input_report_notify(&host_connection, &input_report));
                 send_input_report::<K>(server, &host_connection, active_layer, key_state);
 
                 host_future = passed_host_future;

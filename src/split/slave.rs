@@ -9,8 +9,6 @@ use super::HalfDisconnected;
 use crate::ble::{FlashServer, FlashServerEvent, FlashServiceEvent, KeyStateServiceClient};
 use crate::hardware::{ScanPins, SlaveState};
 use crate::interface::Keyboard;
-#[cfg(feature = "lighting")]
-use crate::led::AnimationType;
 use crate::led::LedSender;
 
 pub async fn do_slave<'a, K>(
@@ -40,10 +38,8 @@ where
 
     defmt::info!("connected to other half");
 
-    //let animation = unsafe { flash::FLASH_SETTINGS.assume_init_ref()
-    // }.settings.animation;
     #[cfg(feature = "lighting")]
-    let animation = AnimationType::Rainbow;
+    let animation = unsafe { crate::flash::FLASH_SETTINGS.assume_init_ref() }.settings.animation;
 
     #[cfg(feature = "lighting")]
     led_sender.send(animation).await;
@@ -69,7 +65,7 @@ where
     [(); K::COLUMNS * K::ROWS * 2]:,
 {
     let key_state_client: KeyStateServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&master_connection).await);
-    let flash_sender = crate::flash::FLASH_OPERATIONS.sender();
+    let flash_sender = crate::flash::flash_sender();
 
     loop {
         // Returns any time there is any change in the key state. This state is already

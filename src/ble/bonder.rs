@@ -2,34 +2,13 @@ use nrf_softdevice::ble::gatt_server::set_sys_attrs;
 use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
 use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
 
-use crate::flash::{self, BondSlot, FlashOperation, Peer, SystemAttributes, FLASH_SETTINGS, NO_ADDRESS};
+use crate::flash::{BondSlot, FlashOperation, Peer, SystemAttributes, FLASH_SETTINGS, NO_ADDRESS, apply_flash_operation};
 
-pub struct Bonder {
-    sender: embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, crate::flash::FlashOperation, 3>,
-    slave_sender:
-        embassy_sync::channel::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, crate::flash::FlashOperation, 3>,
-}
+pub struct Bonder {}
 
 impl Bonder {
     pub fn new() -> Self {
-        Self {
-            sender: flash::FLASH_OPERATIONS.sender(),
-            slave_sender: flash::SLAVE_FLASH_OPERATIONS.sender(),
-        }
-    }
-}
-
-impl Bonder {
-    fn send(&self, flash_operation: FlashOperation) {
-        if self.sender.try_send(flash_operation).is_err() {
-            defmt::error!("Failed to send flash operation to flash task");
-        }
-
-        if self.slave_sender.try_send(flash_operation).is_err() {
-            defmt::error!("Failed to send flash operation to slave");
-        }
-
-        defmt::warn!("Sent to flash_operations");
+        Self {}
     }
 }
 
@@ -67,7 +46,7 @@ impl SecurityHandler for Bonder {
                 slot: BondSlot(free_slot),
                 peer,
             };
-            self.send(flash_operation);
+            apply_flash_operation(flash_operation);
         }
     }
 
@@ -112,7 +91,7 @@ impl SecurityHandler for Bonder {
                 slot: BondSlot(slot),
                 system_attributes,
             };
-            self.send(flash_operation);
+            apply_flash_operation(flash_operation);
         }
     }
 

@@ -1,9 +1,18 @@
+use crate::flash::BondSlot;
+use crate::led::AnimationType;
+
 pub struct Layer(pub usize);
+
+pub enum SpecialAction {
+    RemoveBond { bond_slot: BondSlot },
+    SwitchAnimation { animation: AnimationType },
+}
 
 pub enum Mapping {
     Key(u8),
     Layer(usize),
     TapLayer(usize, u8),
+    Special(SpecialAction),
 }
 
 impl Mapping {
@@ -21,6 +30,7 @@ impl Mapping {
             Key(value) => *value,
             Mapping::Layer(..) => panic!("mapping layer cannot be used as a regular key"),
             Mapping::TapLayer(_, value) => *value,
+            Mapping::Special(..) => panic!("special key cannot be used as a regular key"),
         }
     }
 }

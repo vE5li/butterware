@@ -1,6 +1,7 @@
 use embassy_time::driver::now;
 
 use super::KeyState;
+use crate::flash::{FlashOperation, apply_flash_operation};
 use crate::hardware::{ActiveLayer, DebouncedKey, TestBit};
 use crate::interface::{Keyboard, KeyboardExtension};
 use crate::keys::Mapping;
@@ -120,6 +121,25 @@ where
                     Mapping::Key(..) => continue,
                     Mapping::Layer(layer_index) => (layer_index, None),
                     Mapping::TapLayer(layer_index, _) => (layer_index, Some(now())),
+                    Mapping::Special(ref special_action) => {
+                        if key_state.test_bit(key_index) {
+                            match special_action {
+                                crate::keys::SpecialAction::RemoveBond { bond_slot } => {
+                                    let flash_operation = FlashOperation::RemoveBond(*bond_slot);
+                                    apply_flash_operation(flash_operation);
+                                }
+                                crate::keys::SpecialAction::SwitchAnimation { animation } => {
+                                    let flash_operation = FlashOperation::SwitchAnimation(*animation);
+                                    apply_flash_operation(flash_operation);
+                                }
+                            }
+
+                            // Necessary so that the special key does not get sent.
+                            key_state.clear_bit(key_index);
+                        }
+
+                        continue;
+                    }
                 };
 
                 // Make sure that the same layer is not pushed twice in a row

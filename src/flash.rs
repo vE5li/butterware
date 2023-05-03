@@ -3,14 +3,14 @@ use core::mem::MaybeUninit;
 use elain::Align;
 use embassy_nrf::nvmc;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel, Receiver, Sender};
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 use futures::pin_mut;
 use nrf_softdevice::ble::{Address, EncryptionInfo, FixedGattValue, IdentityKey, MasterId};
 use nrf_softdevice::Flash;
 
 #[cfg(feature = "lighting")]
-use crate::led::AnimationType;
+use crate::led::{led_sender, AnimationType};
 
 // The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
 // because it is known to cause problems with most operating systems. So we
@@ -31,8 +31,26 @@ const _: () = assert!(
 #[link_section = ".flash_storage"]
 pub static SETTINGS_FLASH: MaybeUninit<ReservedFlash> = MaybeUninit::uninit();
 pub static mut FLASH_SETTINGS: MaybeUninit<AlignedFlashSettings> = MaybeUninit::uninit();
-pub static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
-pub static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
+static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
+static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
+
+pub fn flash_sender() -> Sender<'static, ThreadModeRawMutex, FlashOperation, 3> {
+    FLASH_OPERATIONS.sender()
+}
+
+pub fn slave_flash_receiver() -> Receiver<'static, ThreadModeRawMutex, FlashOperation, 3> {
+    SLAVE_FLASH_OPERATIONS.receiver()
+}
+
+pub fn apply_flash_operation(flash_operation: FlashOperation) {
+    if FLASH_OPERATIONS.sender().try_send(flash_operation).is_err() {
+        defmt::error!("Failed to send flash operation to flash task");
+    }
+
+    if SLAVE_FLASH_OPERATIONS.sender().try_send(flash_operation).is_err() {
+        defmt::error!("Failed to send flash operation to slave");
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, defmt::Format)]
@@ -49,9 +67,9 @@ pub enum FlashOperation {
         slot: BondSlot,
         system_attributes: SystemAttributes,
     },
-    // TODO: remove unused
-    #[allow(unused)]
-    RemovePeer(BondSlot),
+    RemoveBond(BondSlot),
+    #[cfg(feature = "lighting")]
+    SwitchAnimation(AnimationType),
 }
 
 impl FixedGattValue for FlashOperation {
@@ -148,6 +166,10 @@ pub async fn flash_task(flash: Flash) {
     let settings = unsafe { core::mem::transmute::<&[u8; core::mem::size_of::<AlignedFlashSettings>()], &AlignedFlashSettings>(&buffer) };
     let settings = unsafe { FLASH_SETTINGS.write(*settings) };
 
+    // Led sender
+    #[cfg(feature = "lighting")]
+    let led_sender = led_sender();
+
     loop {
         let operation = receiver.recv().await;
 
@@ -166,13 +188,24 @@ pub async fn flash_task(flash: Flash) {
                 // need to erase the section before writing.
                 write_to_flash(&mut flash, address, settings, true).await;
             }
-            FlashOperation::RemovePeer(slot) => {
+            FlashOperation::RemoveBond(slot) => {
                 if settings.settings.bonds[slot.0].peer.peer_id.addr != NO_ADDRESS {
                     settings.settings.bonds[slot.0] = unsafe { MaybeUninit::zeroed().assume_init() };
 
                     // Since all we are doing is setting the bits of a peer to 0, we can write
                     // without erasing first.
                     write_to_flash(&mut flash, address, settings, false).await;
+                }
+            }
+            FlashOperation::SwitchAnimation(animation_type) => {
+                if settings.settings.animation != animation_type {
+                    led_sender.send(animation_type).await;
+
+                    settings.settings.animation = animation_type;
+
+                    // Since we are potentially trying to set bits to 1 that are currently 0, we
+                    // need to erase the section before writing.
+                    write_to_flash(&mut flash, address, settings, true).await;
                 }
             }
         }

@@ -141,11 +141,12 @@ where
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, defmt::Format)]
+#[derive(Clone, Copy, Debug, defmt::Format, PartialEq, Eq)]
 pub enum AnimationType {
+    // This first animation is the set after flashing.
+    Rainbow,
     Disconnected,
     IndicateMaster { is_master: bool },
-    Rainbow,
 }
 
 enum Animation {
