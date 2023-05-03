@@ -2,13 +2,15 @@ use nrf_softdevice::ble::gatt_server::set_sys_attrs;
 use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
 use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
 
-use crate::flash::{BondSlot, FlashOperation, Peer, SystemAttributes, FLASH_SETTINGS, NO_ADDRESS, apply_flash_operation};
+use crate::flash::{apply_flash_operation, get_settings, BondSlot, FlashOperation, FlashToken, Peer, SystemAttributes, NO_ADDRESS};
 
-pub struct Bonder {}
+pub struct Bonder {
+    flash_token: FlashToken,
+}
 
 impl Bonder {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(flash_token: FlashToken) -> Self {
+        Self { flash_token }
     }
 }
 
@@ -28,8 +30,7 @@ impl SecurityHandler for Bonder {
     fn on_bonded(&self, _conn: &Connection, master_id: MasterId, key: EncryptionInfo, peer_id: IdentityKey) {
         defmt::debug!("Storing bond with key {} for master with id {}", key, master_id);
 
-        let free_slot = unsafe { FLASH_SETTINGS.assume_init_ref() }
-            .settings
+        let free_slot = get_settings(self.flash_token)
             .bonds
             .iter()
             .position(|bond| bond.peer.peer_id.addr == NO_ADDRESS);
@@ -51,8 +52,7 @@ impl SecurityHandler for Bonder {
     }
 
     fn get_key(&self, _conn: &Connection, master_id: MasterId) -> Option<EncryptionInfo> {
-        let key = unsafe { FLASH_SETTINGS.assume_init_ref() }
-            .settings
+        let key = get_settings(self.flash_token)
             .bonds
             .iter()
             .find(|bond| bond.peer.master_id == master_id)
@@ -71,8 +71,7 @@ impl SecurityHandler for Bonder {
 
         defmt::debug!("Saving system attributes for peer with address {}", peer_address);
 
-        let slot = unsafe { FLASH_SETTINGS.assume_init_ref() }
-            .settings
+        let slot = get_settings(self.flash_token)
             .bonds
             .iter()
             .position(|bond| bond.peer.peer_id.addr == peer_address);
@@ -100,8 +99,7 @@ impl SecurityHandler for Bonder {
 
         defmt::debug!("Loading system attributes for peer with address {}", peer_address);
 
-        let attributes = unsafe { FLASH_SETTINGS.assume_init_ref() }
-            .settings
+        let attributes = get_settings(self.flash_token)
             .bonds
             .iter()
             .find(|bond| bond.peer.peer_id.addr == peer_address)

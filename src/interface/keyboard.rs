@@ -1,6 +1,7 @@
 use embassy_nrf::Peripherals;
 use nrf_softdevice::ble::{Address, AddressType};
 
+use crate::flash::FlashToken;
 use crate::hardware::ScanPinConfig;
 use crate::keys::Mapping;
 
@@ -33,9 +34,11 @@ where
     // milliseconds.
     const TAP_TIME: u64 = 5000;
 
-    fn new() -> Self;
+    type BoardFlash;
 
-    fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }>;
+    fn new(flash_token: FlashToken) -> Self;
+
+    async fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }>;
 }
 
 pub trait KeyboardExtension {

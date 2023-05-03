@@ -7,6 +7,7 @@ use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
 use crate::ble::{FlashServer, FlashServerEvent, FlashServiceEvent, KeyStateServiceClient};
+use crate::flash::{FlashToken, get_settings};
 use crate::hardware::{ScanPins, SlaveState};
 use crate::interface::Keyboard;
 use crate::led::LedSender;
@@ -16,6 +17,7 @@ pub async fn do_slave<'a, K>(
     flash_server: &FlashServer,
     pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
     address: &Address,
+    #[cfg(feature = "lighting")] flash_token: FlashToken,
     #[cfg(feature = "lighting")] led_sender: &LedSender,
 ) -> Result<Infallible, HalfDisconnected>
 where
@@ -39,18 +41,12 @@ where
     defmt::info!("connected to other half");
 
     #[cfg(feature = "lighting")]
-    let animation = unsafe { crate::flash::FLASH_SETTINGS.assume_init_ref() }.settings.animation;
+    let animation = get_settings(flash_token).animation;
 
     #[cfg(feature = "lighting")]
     led_sender.send(animation).await;
 
-    slave_connection(
-        &mut keyboard_state,
-        pins,
-        master_connection,
-        flash_server,
-    )
-    .await
+    slave_connection(&mut keyboard_state, pins, master_connection, flash_server).await
 }
 
 async fn slave_connection<'a, K>(

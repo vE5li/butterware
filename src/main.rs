@@ -5,6 +5,7 @@
 #![feature(macro_metavar_expr)]
 #![feature(concat_idents)]
 #![feature(iter_next_chunk)]
+#![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
 
 use embassy_executor::Spawner;
@@ -33,6 +34,10 @@ mod interface;
 // folder) into a module named keyboards.
 import_keyboards!("../keyboards");
 
+// Get the keyboard selected by the user from environment variables and alias it
+// as `Used`.
+alias_keyboard!(as Used);
+
 use ble::Server;
 
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
@@ -53,11 +58,7 @@ async fn softdevice_task(sd: &'static Softdevice) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
-    // Get the keyboard selected by the user from environment variables and alias it
-    // as `Used`.
-    alias_keyboard!(as Used);
-
-    // First we get the peripherals access crate.
+    // Peripherals
     let mut config = embassy_nrf::config::Config::default();
     config.gpiote_interrupt_priority = interrupt::Priority::P2;
     config.time_interrupt_priority = interrupt::Priority::P2;
@@ -65,9 +66,7 @@ async fn main(spawner: Spawner) -> ! {
     config.lfclk_source = LfclkSource::ExternalXtal;
     let peripherals = embassy_nrf::init(config);
 
-    let mut keyboard = Used::new();
-    let (mut pins, spis) = keyboard.init_peripherals(peripherals).to_pins();
-
+    // Softdevice config
     let config = nrf_softdevice::Config {
         clock: Some(raw::nrf_clock_lf_cfg_t {
             source: raw::NRF_CLOCK_LF_SRC_RC as u8,
@@ -100,33 +99,41 @@ async fn main(spawner: Spawner) -> ! {
 
     let softdevice = Softdevice::enable(&config);
 
+    // Initialize the settings stored in flash.
+    let mut flash = Flash::take(softdevice);
+    let flash_token = flash::initalize_flash(&mut flash).await;
+
+    // Register BLE services.
     let server = defmt::unwrap!(Server::new(softdevice));
     let key_state_server = defmt::unwrap!(ble::KeyStateServer::new(softdevice));
     let flash_server = defmt::unwrap!(ble::FlashServer::new(softdevice));
     #[cfg(feature = "left")]
     let master_server = defmt::unwrap!(ble::MasterServer::new(softdevice));
 
+    // Instanciate the keyboard.
+    let mut keyboard = Used::new(flash_token);
+    let (mut pins, spis) = keyboard.init_peripherals(peripherals).await.to_pins();
+
+    // Softdevice task
     defmt::unwrap!(spawner.spawn(softdevice_task(softdevice)));
 
     // Flash task
-    let flash = Flash::take(softdevice);
-    defmt::unwrap!(spawner.spawn(flash::flash_task(flash)));
+    defmt::unwrap!(spawner.spawn(flash::flash_task(flash, flash_token)));
 
     // Led task
     #[cfg(feature = "lighting")]
     defmt::unwrap!(spawner.spawn(led::led_task(spis)));
 
     // Bluetooth setup
+    const SCAN_DATA: &[u8] = &[0x03, 0x03, 0x09, 0x18];
     const ADVERTISING_DATA: AdvertisingData = AdvertisingData::new()
         .add_flags(raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8)
         .add_services(&[0x09, 0x18])
         .add_name(Used::DEVICE_NAME)
         .add_appearance(KEYBOARD_ICON);
 
-    const SCAN_DATA: &[u8] = &[0x03, 0x03, 0x09, 0x18];
-
     static BONDER: StaticCell<Bonder> = StaticCell::new();
-    let bonder = BONDER.init(Bonder::new());
+    let bonder = BONDER.init(Bonder::new(flash_token));
 
     loop {
         // Set a well-defined address that the other half can connect to.
@@ -166,6 +173,8 @@ async fn main(spawner: Spawner) -> ! {
                     SCAN_DATA,
                     &mut pins,
                     #[cfg(feature = "lighting")]
+                    flash_token,
+                    #[cfg(feature = "lighting")]
                     &led_sender,
                 )
                 .await
@@ -181,6 +190,8 @@ async fn main(spawner: Spawner) -> ! {
                     &flash_server,
                     &mut pins,
                     &MASTER_ADDRESS,
+                    #[cfg(feature = "lighting")]
+                    flash_token,
                     #[cfg(feature = "lighting")]
                     &led_sender,
                 )

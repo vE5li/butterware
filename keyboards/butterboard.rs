@@ -2,11 +2,15 @@ use embassy_cortex_m::interrupt::Interrupt;
 use embassy_nrf::gpio::Pin;
 use embassy_nrf::{interrupt, Peripherals};
 
+use crate::flash::{apply_flash_operation, get_settings, FlashOperation, FlashToken};
 use crate::hardware::{ScanPinConfig, SpiConfig};
 use crate::interface::{Keyboard, Scannable};
 use crate::keys::*;
+use crate::led::AnimationType;
 
-pub struct Butterboard;
+pub struct Butterboard {
+    current_animation: usize,
+}
 
 register_layers!(Butterboard, ButterboardLayers, [BASE, SPECIAL, TEST]);
 
@@ -34,6 +38,7 @@ macro_rules! new_layer {
 }
 
 impl Butterboard {
+    const ANIMATIONS: &[AnimationType] = &[AnimationType::Rainbow, AnimationType::Disconnected];
     #[rustfmt::skip]
     const BASE: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
         Q, W, F, P, B, J, L, U, Y, Y,
@@ -51,11 +56,26 @@ impl Butterboard {
     const SPE_SPC: Mapping = Mapping::tap_layer(ButterboardLayers::SPECIAL, SPACE);
     #[rustfmt::skip]
     const TEST: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
-        Q, W, F, P, B, J, L, U, Y, Y,
+        Q, W, F, Mapping::Special(SpecialAction::SwitchAnimation { animation: AnimationType::Disconnected }), Mapping::Special(SpecialAction::SwitchAnimation { animation: AnimationType::Rainbow }), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(ButterboardLayers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
+
+    #[allow(unused)]
+    fn next_animation(&mut self) {
+        // Go to next animation.
+        self.current_animation = (self.current_animation + 1) % Self::ANIMATIONS.len();
+
+        // Update the lighting on both sides and in the firmware flash.
+        let animation_type = Self::ANIMATIONS[self.current_animation];
+        let flash_operation = FlashOperation::SwitchAnimation(animation_type);
+        apply_flash_operation(flash_operation);
+
+        // Save custom data to our board flash.
+        let flash_operation = FlashOperation::StoreBoardFlash(self.current_animation);
+        apply_flash_operation(flash_operation);
+    }
 }
 
 impl Scannable for Butterboard {
@@ -64,14 +84,19 @@ impl Scannable for Butterboard {
 }
 
 impl Keyboard for Butterboard {
+    type BoardFlash = usize;
+
     const DEVICE_NAME: &'static [u8] = b"Butterboard";
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]] = ButterboardLayers::LAYER_LOOKUP;
 
-    fn new() -> Self {
-        Self
+    fn new(flash_token: FlashToken) -> Self {
+        // Get the flash settings and extract the custom data stored for this board.
+        let current_animation = get_settings(flash_token).board_flash;
+
+        Self { current_animation }
     }
 
-    fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
+    async fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
         use embassy_nrf::interrupt::InterruptExt;
 
         // Enable power on the 3V rail.

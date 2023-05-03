@@ -9,6 +9,7 @@ use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
 use crate::ble::{Bonder, FlashServiceClient, KeyStateServer, KeyStateServerEvent, KeyStateServiceEvent, Server};
+use crate::flash::{get_settings, FlashToken};
 use crate::hardware::{MasterState, ScanPins, TestBit};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::led::LedSender;
@@ -21,6 +22,7 @@ pub async fn do_master<K>(
     adv_data: &[u8],
     scan_data: &[u8],
     pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
+    #[cfg(feature = "lighting")] flash_token: FlashToken,
     #[cfg(feature = "lighting")] led_sender: &LedSender,
 ) -> Result<Infallible, HalfDisconnected>
 where
@@ -38,7 +40,7 @@ where
     defmt::info!("connected to other half");
 
     #[cfg(feature = "lighting")]
-    let animation = unsafe { crate::flash::FLASH_SETTINGS.assume_init_ref() }.settings.animation;
+    let animation = get_settings(flash_token).animation;
 
     #[cfg(feature = "lighting")]
     led_sender.send(animation).await;
