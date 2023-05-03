@@ -112,7 +112,9 @@ async fn main(spawner: Spawner) -> ! {
 
     // Instanciate the keyboard.
     let mut keyboard = Used::new(flash_token);
-    let (mut pins, spis) = keyboard.init_peripherals(peripherals).await.to_pins();
+    keyboard.pre_initialize().await;
+    let (mut pins, spis) = keyboard.initialize_peripherals(peripherals).await.to_pins();
+    keyboard.post_initialize().await;
 
     // Softdevice task
     defmt::unwrap!(spawner.spawn(softdevice_task(softdevice)));

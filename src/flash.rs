@@ -24,11 +24,14 @@ const MAXIMUM_SAVED_CONNECTIONS: usize = 8;
 static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
 static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
 
-pub fn flash_sender() -> Sender<'static, ThreadModeRawMutex, FlashOperation, 3> {
+pub type FlashSender = Sender<'static, ThreadModeRawMutex, FlashOperation, 3>;
+pub type SlaveFlashReceiver = Receiver<'static, ThreadModeRawMutex, FlashOperation, 3>;
+
+pub fn flash_sender() -> FlashSender {
     FLASH_OPERATIONS.sender()
 }
 
-pub fn slave_flash_receiver() -> Receiver<'static, ThreadModeRawMutex, FlashOperation, 3> {
+pub fn slave_flash_receiver() -> SlaveFlashReceiver {
     SLAVE_FLASH_OPERATIONS.receiver()
 }
 

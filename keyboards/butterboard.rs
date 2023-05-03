@@ -96,7 +96,7 @@ impl Keyboard for Butterboard {
         Self { current_animation }
     }
 
-    async fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
+    async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
         use embassy_nrf::interrupt::InterruptExt;
 
         // Enable power on the 3V rail.

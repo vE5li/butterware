@@ -38,7 +38,11 @@ where
 
     fn new(flash_token: FlashToken) -> Self;
 
-    async fn init_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }>;
+    async fn pre_initialize(&mut self) {}
+
+    async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }>;
+
+    async fn post_initialize(&mut self) {}
 }
 
 pub trait KeyboardExtension {

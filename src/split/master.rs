@@ -1,7 +1,6 @@
 use core::convert::Infallible;
 use core::ops::ControlFlow;
 
-use embassy_time::{Duration, Timer};
 use futures::future::{select, Either};
 use futures::pin_mut;
 use nrf_softdevice::ble::{gatt_server, peripheral, set_address, Connection};
@@ -9,7 +8,7 @@ use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
 use crate::ble::{Bonder, FlashServiceClient, KeyStateServer, KeyStateServerEvent, KeyStateServiceEvent, Server};
-use crate::flash::{get_settings, FlashToken};
+use crate::flash::{get_settings, FlashToken, SlaveFlashReceiver};
 use crate::hardware::{MasterState, ScanPins, TestBit};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::led::LedSender;
@@ -37,6 +36,10 @@ where
     let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
     let slave_connection = defmt::unwrap!(peripheral::advertise_connectable(softdevice, adv, &config).await);
 
+    // Get the flash client of the other side.
+    let flash_client: FlashServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
+    let flash_operations = crate::flash::slave_flash_receiver();
+
     defmt::info!("connected to other half");
 
     #[cfg(feature = "lighting")]
@@ -58,15 +61,24 @@ where
         pin_mut!(advertise_future);
 
         let host_connection = loop {
-            let connection_future = Timer::after(Duration::from_secs(1));
-            pin_mut!(connection_future);
+            let inner_future = master_scan(
+                &mut keyboard_state,
+                pins,
+                key_state_server,
+                &slave_connection,
+                &flash_client,
+                &flash_operations,
+            );
+            pin_mut!(inner_future);
 
-            match select(advertise_future, connection_future).await {
+            match select(advertise_future, inner_future).await {
                 Either::Left((advertise_result, _)) => {
                     break defmt::unwrap!(advertise_result);
                 }
-                Either::Right((_, passed_advertise_future)) => {
-                    slave_connection.handle().ok_or(HalfDisconnected)?;
+                Either::Right((result, passed_advertise_future)) => {
+                    // We just want to make sure that the slave did not disconnect, so we discard
+                    // all other information.
+                    let _ = result?;
                     advertise_future = passed_advertise_future;
                     continue;
                 }
@@ -83,8 +95,87 @@ where
             key_state_server,
             &slave_connection,
             &host_connection,
+            &flash_client,
+            &flash_operations,
         )
         .await?;
+    }
+}
+
+async fn master_scan<K>(
+    state: &mut MasterState<K>,
+    pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
+    key_state_server: &KeyStateServer,
+    slave_connection: &Connection,
+    flash_client: &FlashServiceClient,
+    flash_operations: &SlaveFlashReceiver,
+) -> Result<(usize, u64, u64), HalfDisconnected>
+where
+    K: Keyboard,
+    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); K::COLUMNS * K::ROWS * 2]:,
+{
+    loop {
+        let master_raw_state = state.master_raw_state;
+        let slave_raw_state = state.slave_raw_state;
+
+        let (key_state, slave_raw_state) = {
+            // Create futures.
+            let scan_future = crate::hardware::do_scan(state, pins);
+            let slave_future = gatt_server::run_until(slave_connection, key_state_server, |event| match event {
+                KeyStateServerEvent::KeyStateService(event) => match event {
+                    KeyStateServiceEvent::KeyStateWrite(key_state) => ControlFlow::Break(key_state),
+                },
+            });
+            let flash_future = async {
+                loop {
+                    let flash_operation = flash_operations.recv().await;
+
+                    defmt::info!("Received flash operation for client");
+                    defmt::info!("Setting flash operation for client to {:?}", flash_operation);
+
+                    defmt::unwrap!(flash_client.flash_operation_write(&flash_operation).await);
+                }
+            };
+
+            // Pin futures so we can call select on them.
+            //pin_mut!(scan_future);
+            //pin_mut!(slave_future);
+
+            match crate::future::select3(scan_future, slave_future, flash_future).await {
+                // Master side state changed.
+                crate::future::Either3::First(key_state) => {
+                    #[cfg(feature = "left")]
+                    let combined_state = slave_raw_state | (key_state << K::KEY_COUNT);
+
+                    #[cfg(feature = "right")]
+                    let combined_state = (slave_raw_state << K::KEY_COUNT) | key_state;
+
+                    (combined_state, slave_raw_state)
+                }
+                // Slave side state changed.
+                crate::future::Either3::Second(key_state) => {
+                    let key_state = key_state.map_err(|_| HalfDisconnected)?;
+
+                    #[cfg(feature = "left")]
+                    let combined_state = (master_raw_state << K::KEY_COUNT) | key_state;
+
+                    #[cfg(feature = "right")]
+                    let combined_state = master_raw_state | (key_state << K::KEY_COUNT);
+
+                    (combined_state, key_state)
+                }
+                crate::future::Either3::Third(..) => unreachable!(),
+            }
+        };
+
+        // We do this update down here because we cannot mutably access the state inside
+        // of the scope above.
+        state.slave_raw_state = slave_raw_state;
+
+        if let Some(output_state) = state.apply(key_state) {
+            return Ok(output_state);
+        }
     }
 }
 
@@ -95,6 +186,8 @@ async fn master_connection<K>(
     key_state_server: &KeyStateServer,
     slave_connection: &Connection,
     host_connection: &Connection,
+    flash_client: &FlashServiceClient,
+    flash_operations: &SlaveFlashReceiver,
 ) -> Result<(), HalfDisconnected>
 where
     K: Keyboard,
@@ -104,74 +197,8 @@ where
     let host_future = gatt_server::run(host_connection, server, |_| {});
     pin_mut!(host_future);
 
-    let flash_client: FlashServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
-    let flash_operations = crate::flash::slave_flash_receiver();
-
     loop {
-        let inner_future = async {
-            loop {
-                let master_raw_state = state.master_raw_state;
-                let slave_raw_state = state.slave_raw_state;
-
-                let (key_state, slave_raw_state) = {
-                    // Create futures.
-                    let scan_future = crate::hardware::do_scan(state, pins);
-                    let slave_future = gatt_server::run_until(slave_connection, key_state_server, |event| match event {
-                        KeyStateServerEvent::KeyStateService(event) => match event {
-                            KeyStateServiceEvent::KeyStateWrite(key_state) => ControlFlow::Break(key_state),
-                        },
-                    });
-                    let flash_future = async {
-                        loop {
-                            let flash_operation = flash_operations.recv().await;
-
-                            defmt::info!("Received flash operation for client");
-                            defmt::info!("Setting flash operation for client to {:?}", flash_operation);
-
-                            defmt::unwrap!(flash_client.flash_operation_write(&flash_operation).await);
-                        }
-                    };
-
-                    // Pin futures so we can call select on them.
-                    //pin_mut!(scan_future);
-                    //pin_mut!(slave_future);
-
-                    match crate::future::select3(scan_future, slave_future, flash_future).await {
-                        // Master side state changed.
-                        crate::future::Either3::First(key_state) => {
-                            #[cfg(feature = "left")]
-                            let combined_state = slave_raw_state | (key_state << K::KEY_COUNT);
-
-                            #[cfg(feature = "right")]
-                            let combined_state = (slave_raw_state << K::KEY_COUNT) | key_state;
-
-                            (combined_state, slave_raw_state)
-                        }
-                        // Slave side state changed.
-                        crate::future::Either3::Second(key_state) => {
-                            let key_state = key_state.map_err(|_| HalfDisconnected)?;
-
-                            #[cfg(feature = "left")]
-                            let combined_state = (master_raw_state << K::KEY_COUNT) | key_state;
-
-                            #[cfg(feature = "right")]
-                            let combined_state = master_raw_state | (key_state << K::KEY_COUNT);
-
-                            (combined_state, key_state)
-                        }
-                        crate::future::Either3::Third(..) => unreachable!(),
-                    }
-                };
-
-                // We do this update down here because we cannot mutably access the state inside
-                // of the scope above.
-                state.slave_raw_state = slave_raw_state;
-
-                if let Some(output_state) = state.apply(key_state) {
-                    return Ok(output_state);
-                }
-            }
-        };
+        let inner_future = master_scan(state, pins, key_state_server, slave_connection, flash_client, flash_operations);
         pin_mut!(inner_future);
 
         match select(host_future, inner_future).await {
