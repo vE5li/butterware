@@ -25,8 +25,8 @@ cortex-m-rt = "0.7.0"
 defmt = "=0.3.2"
 defmt-rtt = "0.4.0"
 panic-probe = { version = "0.3", features= ["print-defmt"] }
-nrf-softdevice = { git = "https://github.com/vE5li/nrf-softdevice", rev = "0dd06e65a1c306bae34953cb0d504cd7ffb2c274", features = ["nightly", "defmt", "nrf52840", "s140", "ble-peripheral", "ble-central", "critical-section-impl", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "ble-sec"] }
-nrf-softdevice-s140 = { git = "https://github.com/vE5li/nrf-softdevice", rev = "0dd06e65a1c306bae34953cb0d504cd7ffb2c274"  }
+nrf-softdevice = { git = "https://github.com/vE5li/nrf-softdevice", rev = "64a5000e8fa39367d459e7306c1a069ccc365b47", features = ["nightly", "defmt", "nrf52840", "s140", "ble-peripheral", "ble-central", "critical-section-impl", "ble-l2cap", "ble-gatt-server", "ble-gatt-client", "ble-sec"] }
+nrf-softdevice-s140 = { git = "https://github.com/vE5li/nrf-softdevice", rev = "64a5000e8fa39367d459e7306c1a069ccc365b47"  }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.4.0"
 futures = { version = "0.3.5", default-features = false }

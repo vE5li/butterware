@@ -100,13 +100,12 @@ async fn main(spawner: Spawner) -> ! {
 
     let softdevice = Softdevice::enable(&config);
 
-    let mut server = defmt::unwrap!(Server::new(softdevice));
+    let server = defmt::unwrap!(Server::new(softdevice));
     let key_state_server = defmt::unwrap!(ble::KeyStateServer::new(softdevice));
     let flash_server = defmt::unwrap!(ble::FlashServer::new(softdevice));
     #[cfg(feature = "left")]
     let master_server = defmt::unwrap!(ble::MasterServer::new(softdevice));
 
-    server.set_softdevice(softdevice);
     defmt::unwrap!(spawner.spawn(softdevice_task(softdevice)));
 
     // Flash task

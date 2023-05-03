@@ -49,6 +49,8 @@ pub enum FlashOperation {
         slot: BondSlot,
         system_attributes: SystemAttributes,
     },
+    // TODO: remove unused
+    #[allow(unused)]
     RemovePeer(BondSlot),
 }
 

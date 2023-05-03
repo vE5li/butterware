@@ -9,20 +9,20 @@ use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
 use crate::ble::{Bonder, FlashServiceClient, KeyStateServer, KeyStateServerEvent, KeyStateServiceEvent, Server};
-use crate::hardware::{MasterState, ScanPins};
-use crate::interface::{Keyboard, KeyboardExtension};
+use crate::hardware::{MasterState, ScanPins, TestBit};
+use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 #[cfg(feature = "lighting")]
 use crate::led::AnimationType;
 use crate::led::LedSender;
 
-pub async fn do_master<'a, K>(
+pub async fn do_master<K>(
     softdevice: &Softdevice,
-    server: &Server<'a>,
+    server: &Server,
     key_state_server: &KeyStateServer,
     bonder: &'static Bonder,
     adv_data: &[u8],
     scan_data: &[u8],
-    pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
+    pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
     #[cfg(feature = "lighting")] led_sender: &LedSender,
 ) -> Result<Infallible, HalfDisconnected>
 where
@@ -100,10 +100,10 @@ where
     }
 }
 
-async fn master_connection<'a, K>(
+async fn master_connection<K>(
     state: &mut MasterState<K>,
-    pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
-    server: &Server<'_>,
+    pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
+    server: &Server,
     key_state_server: &KeyStateServer,
     slave_connection: &Connection,
     host_connection: &Connection,
@@ -196,13 +196,46 @@ where
 
                 // If there are any, send the input once with the injected keys.
                 if injected_keys != 0 {
-                    server.send_input_report::<K>(&host_connection, active_layer, key_state | injected_keys);
+                    send_input_report::<K>(server, &host_connection, active_layer, key_state | injected_keys);
                 }
 
-                server.send_input_report::<K>(&host_connection, active_layer, key_state);
+                send_input_report::<K>(server, &host_connection, active_layer, key_state);
 
                 host_future = passed_host_future;
             }
         }
     }
+}
+
+pub fn send_input_report<K>(server: &Server, connection: &Connection, active_layer: usize, key_state: u64)
+where
+    K: Keyboard,
+    [(); <K as Scannable>::MAXIMUM_ACTIVE_LAYERS]:,
+    [(); <K as Scannable>::COLUMNS * <K as Scannable>::ROWS * 2]:,
+{
+    const SCAN_CODE_POSITION: usize = 2;
+    const REPORT_SIZE: usize = 8;
+
+    let mut input_report = [0; REPORT_SIZE];
+    let mut offset = SCAN_CODE_POSITION;
+
+    // temporary assert to avoid bugs while implementing.
+    assert!(<K as Scannable>::COLUMNS * <K as Scannable>::ROWS * 2 <= 64);
+
+    for index in 0..<K as Scannable>::COLUMNS * <K as Scannable>::ROWS * 2 {
+        if key_state.test_bit(index) {
+            if offset == REPORT_SIZE {
+                input_report[SCAN_CODE_POSITION..REPORT_SIZE].fill(crate::keys::ERR_OVF.keycode());
+                break;
+            }
+
+            let key = K::LAYER_LOOKUP[active_layer][index].keycode();
+            input_report[offset] = key;
+            offset += 1;
+        }
+    }
+
+    defmt::info!("Sending input report with value {:?}", input_report);
+
+    defmt::unwrap!(server.hid_service.input_report_notify(connection, &input_report));
 }

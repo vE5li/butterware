@@ -722,7 +722,7 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 [[package]]
 name = "nrf-softdevice"
 version = "0.1.0"
-source = "git+https://github.com/vE5li/nrf-softdevice?rev=0dd06e65a1c306bae34953cb0d504cd7ffb2c274#0dd06e65a1c306bae34953cb0d504cd7ffb2c274"
+source = "git+https://github.com/vE5li/nrf-softdevice?rev=64a5000e8fa39367d459e7306c1a069ccc365b47#64a5000e8fa39367d459e7306c1a069ccc365b47"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -743,7 +743,7 @@ dependencies = [
 [[package]]
 name = "nrf-softdevice-macro"
 version = "0.1.0"
-source = "git+https://github.com/vE5li/nrf-softdevice?rev=0dd06e65a1c306bae34953cb0d504cd7ffb2c274#0dd06e65a1c306bae34953cb0d504cd7ffb2c274"
+source = "git+https://github.com/vE5li/nrf-softdevice?rev=64a5000e8fa39367d459e7306c1a069ccc365b47#64a5000e8fa39367d459e7306c1a069ccc365b47"
 dependencies = [
  "Inflector",
  "darling",
@@ -756,7 +756,7 @@ dependencies = [
 [[package]]
 name = "nrf-softdevice-s140"
 version = "0.1.1"
-source = "git+https://github.com/vE5li/nrf-softdevice?rev=0dd06e65a1c306bae34953cb0d504cd7ffb2c274#0dd06e65a1c306bae34953cb0d504cd7ffb2c274"
+source = "git+https://github.com/vE5li/nrf-softdevice?rev=64a5000e8fa39367d459e7306c1a069ccc365b47#64a5000e8fa39367d459e7306c1a069ccc365b47"
 
 [[package]]
 name = "nrf52840-pac"
