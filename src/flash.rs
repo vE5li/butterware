@@ -20,12 +20,13 @@ type BoardFlash = <crate::Used as Keyboard>::BoardFlash;
 pub const NO_ADDRESS: Address = Address { flags: 0, bytes: [0; 6] };
 
 const MAXIMUM_SAVED_CONNECTIONS: usize = 8;
+const FLASH_CHANNEL_SIZE: usize = 10;
 
-static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
-static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, 3> = Channel::new();
+static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE> = Channel::new();
+static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE> = Channel::new();
 
-pub type FlashSender = Sender<'static, ThreadModeRawMutex, FlashOperation, 3>;
-pub type SlaveFlashReceiver = Receiver<'static, ThreadModeRawMutex, FlashOperation, 3>;
+pub type FlashSender = Sender<'static, ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE>;
+pub type SlaveFlashReceiver = Receiver<'static, ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE>;
 
 pub fn flash_sender() -> FlashSender {
     FLASH_OPERATIONS.sender()
