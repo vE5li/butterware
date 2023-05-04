@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-left = []
-right = []
+left = ["procedural/left"]
+right = ["procedural/right"]
 auto-reset = []
 lighting = []
 default = ["auto-reset", "lighting"]

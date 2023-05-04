@@ -25,7 +25,17 @@ pub fn alias_keyboard(input: TokenStream) -> TokenStream {
 
     let name = proc_macro::tracked_env::var("KEYBOARD").expect("No board specified. Try setting the KEYBOARD environment variable.");
 
-    println!("[{}] Building for {}", "Build system".red().bold(), name.yellow());
+    #[cfg(feature = "left")]
+    let side = "Left";
+    #[cfg(feature = "right")]
+    let side = "Right";
+
+    println!(
+        "[{}] Building for {} - {}",
+        "Build system".red().bold(),
+        name.to_case(Case::Title).yellow(),
+        side.yellow()
+    );
 
     let module = syn::Ident::new(&name.to_case(Case::Snake), ident.span());
     let keyboard = syn::Ident::new(&name.to_case(Case::Pascal), ident.span());
