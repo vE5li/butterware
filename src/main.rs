@@ -6,6 +6,7 @@
 #![feature(concat_idents)]
 #![feature(iter_next_chunk)]
 #![feature(async_fn_in_trait)]
+#![feature(associated_type_defaults)]
 #![allow(incomplete_features)]
 
 use embassy_executor::Spawner;

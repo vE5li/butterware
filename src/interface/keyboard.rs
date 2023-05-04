@@ -34,7 +34,10 @@ where
     // milliseconds.
     const TAP_TIME: u64 = 5000;
 
-    type BoardFlash;
+    // Maximum number of bonds that can be stored permanently.
+    const MAXIMUM_BONDS: usize = 10;
+
+    type BoardFlash = ();
 
     fn new(flash_token: FlashToken) -> Self;
 

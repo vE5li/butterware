@@ -10,16 +10,11 @@ use crate::interface::Keyboard;
 #[cfg(feature = "lighting")]
 use crate::led::{led_sender, AnimationType};
 
-// For now we need the specific type here but I would love to make this generic
-// at some point.
-type BoardFlash = <crate::Used as Keyboard>::BoardFlash;
-
 // The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
 // because it is known to cause problems with most operating systems. So we
 // assume that any address only consisting of zeros is not valid.
 pub const NO_ADDRESS: Address = Address { flags: 0, bytes: [0; 6] };
 
-const MAXIMUM_SAVED_CONNECTIONS: usize = 8;
 const FLASH_CHANNEL_SIZE: usize = 10;
 
 static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE> = Channel::new();
@@ -64,7 +59,7 @@ pub enum FlashOperation {
     RemoveBond(BondSlot),
     #[cfg(feature = "lighting")]
     SwitchAnimation(AnimationType),
-    StoreBoardFlash(BoardFlash),
+    StoreBoardFlash(<crate::Used as Keyboard>::BoardFlash),
 }
 
 impl FixedGattValue for FlashOperation {
@@ -112,10 +107,10 @@ pub struct Bond {
 #[repr(C)]
 #[derive(Clone, Copy, defmt::Format)]
 pub struct FlashSettings {
-    pub bonds: [Bond; MAXIMUM_SAVED_CONNECTIONS],
+    pub bonds: [Bond; <crate::Used as Keyboard>::MAXIMUM_BONDS],
     #[cfg(feature = "lighting")]
     pub animation: AnimationType,
-    pub board_flash: BoardFlash,
+    pub board_flash: <crate::Used as Keyboard>::BoardFlash,
 }
 
 mod token {
