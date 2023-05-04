@@ -6,7 +6,7 @@ use crate::flash::{get_settings, FlashToken, FlashTransaction};
 use crate::hardware::{ScanPinConfig, SpiConfig};
 use crate::interface::{Keyboard, Scannable};
 use crate::keys::*;
-use crate::led::AnimationType;
+use crate::led::{Animation, Led, Speed};
 
 pub struct Butterboard {
     current_animation: usize,
@@ -38,10 +38,38 @@ macro_rules! new_layer {
 }
 
 impl Butterboard {
-    const ANIMATIONS: &[AnimationType] = &[AnimationType::Rainbow, AnimationType::Disconnected];
+    const ANIMATIONS: &[Animation] = &[
+        Animation::Rainbow {
+            hue: 0.0,
+            speed: Speed(15.0),
+        },
+        Animation::Rainbow {
+            hue: 0.0,
+            speed: Speed(30.0),
+        },
+        Animation::Rainbow {
+            hue: 0.0,
+            speed: Speed(60.0),
+        },
+        Animation::Pulsate {
+            color: Led::rgb(1.0, 0.0, 0.0),
+            speed: Speed(4.0),
+            offset: 0.0,
+        },
+        Animation::Pulsate {
+            color: Led::rgb(0.0, 1.0, 0.0),
+            speed: Speed(4.0),
+            offset: 0.0,
+        },
+        Animation::Pulsate {
+            color: Led::rgb(0.0, 0.0, 1.0),
+            speed: Speed(4.0),
+            offset: 0.0,
+        },
+    ];
     #[rustfmt::skip]
     const BASE: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
-        Q, W, F, P, B, J, L, U, Y, Y,
+        Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[0] }), Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[1] }), Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[2] }), Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[3] }), Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[4] }), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Z, X, C, D, Mapping::tap_layer(ButterboardLayers::TEST, V), K, H, H, H, Mapping::tap_layer(ButterboardLayers::TEST, H),
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
@@ -56,7 +84,7 @@ impl Butterboard {
     const SPE_SPC: Mapping = Mapping::tap_layer(ButterboardLayers::SPECIAL, SPACE);
     #[rustfmt::skip]
     const TEST: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
-        Q, W, F, Mapping::Special(SpecialAction::SwitchAnimation { animation: AnimationType::Disconnected }), Mapping::Special(SpecialAction::SwitchAnimation { animation: AnimationType::Rainbow }), J, L, U, Y, Y,
+        Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(ButterboardLayers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
@@ -67,11 +95,11 @@ impl Butterboard {
         // Go to next animation.
         self.current_animation = (self.current_animation + 1) % Self::ANIMATIONS.len();
 
-        let animation_type = Self::ANIMATIONS[self.current_animation];
+        let animation = Self::ANIMATIONS[self.current_animation];
 
         FlashTransaction::new()
             // Update the lighting on both sides and in the firmware flash.
-            .switch_animation(animation_type)
+            .switch_animation(animation)
             // Save custom data to our board flash.
             .store_board_flash(self.current_animation)
             // Apply operations
@@ -97,6 +125,12 @@ impl Keyboard for Butterboard {
 
         Self { current_animation }
     }
+
+    /*async fn callback(&mut self, callback: Callback) {
+        match callback {
+            NextAnimation => self.next_animation().await,
+        }
+    }*/
 
     async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
         use embassy_nrf::interrupt::InterruptExt;

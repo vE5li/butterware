@@ -43,8 +43,6 @@ use ble::Server;
 
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::interface::Keyboard;
-#[cfg(feature = "lighting")]
-use crate::led::AnimationType;
 
 #[cfg(all(feature = "left", feature = "right"))]
 compile_error!("Only one side can be built for at a time. Try disabling either the left or right feature.");
@@ -149,7 +147,7 @@ async fn main(spawner: Spawner) -> ! {
         let led_sender = led::led_sender();
 
         #[cfg(feature = "lighting")]
-        led_sender.send(AnimationType::Disconnected).await;
+        led_sender.send(Used::SEARCH_ANIMATION).await;
 
         // Both sides will connect, initially with the left side as the server and the
         // right as peripheral. Once they are connected, they will generate a random
@@ -161,7 +159,10 @@ async fn main(spawner: Spawner) -> ! {
         let is_master = split::connect_determine_master(softdevice, &Used::LEFT_ADDRESS).await;
 
         #[cfg(feature = "lighting")]
-        led_sender.send(AnimationType::IndicateMaster { is_master }).await;
+        match is_master {
+            true => led_sender.send(Used::MASTER_ANIMATION).await,
+            false => led_sender.send(Used::SLAVE_ANIMATION).await,
+        }
 
         defmt::debug!("is master: {}", is_master);
 
@@ -205,7 +206,7 @@ async fn main(spawner: Spawner) -> ! {
         defmt::error!("halves disconnected");
 
         #[cfg(all(feature = "lighting", not(feature = "auto-reset")))]
-        led_sender.send(AnimationType::Disconnected).await;
+        led_sender.send(Animation::Disconnected).await;
 
         #[cfg(not(feature = "auto-reset"))]
         futures::future::pending::<()>().await;

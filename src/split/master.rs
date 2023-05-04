@@ -173,7 +173,7 @@ where
         // of the scope above.
         state.slave_raw_state = slave_raw_state;
 
-        if let Some(output_state) = state.apply(key_state) {
+        if let Some(output_state) = state.apply(key_state).await {
             return Ok(output_state);
         }
     }

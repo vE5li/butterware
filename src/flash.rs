@@ -8,7 +8,7 @@ use nrf_softdevice::Flash;
 
 use crate::interface::Keyboard;
 #[cfg(feature = "lighting")]
-use crate::led::{led_sender, AnimationType};
+use crate::led::{led_sender, Animation};
 
 // The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
 // because it is known to cause problems with most operating systems. So we
@@ -65,8 +65,8 @@ impl<const N: usize> FlashTransaction<N> {
 
     #[cfg(feature = "lighting")]
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn switch_animation(self, animation_type: AnimationType) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(FlashOperation::SwitchAnimation(animation_type))
+    pub fn switch_animation(self, animation: Animation) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(FlashOperation::SwitchAnimation(animation))
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
@@ -111,7 +111,7 @@ pub enum FlashOperation {
     },
     RemoveBond(BondSlot),
     #[cfg(feature = "lighting")]
-    SwitchAnimation(AnimationType),
+    SwitchAnimation(Animation),
     StoreBoardFlash(<crate::Used as Keyboard>::BoardFlash),
     Apply,
 }
@@ -163,7 +163,7 @@ pub struct Bond {
 pub struct FlashSettings {
     pub bonds: [Bond; <crate::Used as Keyboard>::MAXIMUM_BONDS],
     #[cfg(feature = "lighting")]
-    pub animation: AnimationType,
+    pub animation: Animation,
     pub board_flash: <crate::Used as Keyboard>::BoardFlash,
 }
 
@@ -307,11 +307,11 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
                     apply_flags |= ApplyFlags::WRITE;
                 }
             }
-            FlashOperation::SwitchAnimation(animation_type) => {
-                if settings.settings.animation != animation_type {
-                    settings.settings.animation = animation_type;
+            FlashOperation::SwitchAnimation(animation) => {
+                if settings.settings.animation != animation {
+                    settings.settings.animation = animation;
 
-                    led_sender.send(animation_type).await;
+                    led_sender.send(animation).await;
 
                     // Since we are potentially trying to set bits to 1 that are currently 0, we
                     // need to erase the section before writing.

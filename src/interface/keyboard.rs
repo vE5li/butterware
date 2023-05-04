@@ -4,6 +4,7 @@ use nrf_softdevice::ble::{Address, AddressType};
 use crate::flash::FlashToken;
 use crate::hardware::ScanPinConfig;
 use crate::keys::Mapping;
+use crate::led::{Animation, Led, Speed};
 
 pub trait Scannable {
     const COLUMNS: usize;
@@ -36,6 +37,19 @@ where
 
     // Maximum number of bonds that can be stored permanently.
     const MAXIMUM_BONDS: usize = 10;
+
+    // Lighting effects
+    const SEARCH_ANIMATION: Animation = Animation::Pulsate {
+        color: Led::rgb(1.0, 0.0, 0.0),
+        speed: Speed(4.0),
+        offset: 0.0,
+    };
+    const MASTER_ANIMATION: Animation = Animation::Static {
+        color: Led::rgb(1.0, 1.0, 1.0),
+    };
+    const SLAVE_ANIMATION: Animation = Animation::Static {
+        color: Led::rgb(0.0, 0.0, 0.0),
+    };
 
     type BoardFlash = ();
 

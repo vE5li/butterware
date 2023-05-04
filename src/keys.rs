@@ -1,11 +1,11 @@
 use crate::flash::BondSlot;
-use crate::led::AnimationType;
+use crate::led::Animation;
 
 pub struct Layer(pub usize);
 
 pub enum SpecialAction {
     RemoveBond { bond_slot: BondSlot },
-    SwitchAnimation { animation: AnimationType },
+    SwitchAnimation { animation: Animation },
 }
 
 pub enum Mapping {

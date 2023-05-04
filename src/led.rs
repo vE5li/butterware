@@ -3,13 +3,13 @@ use embassy_sync::channel::{Channel, Sender};
 use embassy_time::{Duration, Timer};
 use futures::future::{select, Either};
 use futures::pin_mut;
-use palette::encoding::Linear;
 use palette::FromColor;
 
 use crate::hardware::Spis;
 use crate::interface::UnwrapInfelliable;
 
-#[derive(Clone, Copy, Default, defmt::Format)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, defmt::Format, PartialEq)]
 pub struct Led {
     red: f32,
     green: f32,
@@ -141,24 +141,21 @@ where
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, defmt::Format, PartialEq, Eq)]
-pub enum AnimationType {
+#[derive(Clone, Copy, Debug, defmt::Format, PartialEq)]
+pub struct Speed(pub f32);
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, defmt::Format, PartialEq)]
+pub enum Animation {
     // This first animation is the set after flashing.
-    Rainbow,
-    Disconnected,
-    IndicateMaster { is_master: bool },
+    Static { color: Led },
+    Pulsate { color: Led, speed: Speed, offset: f32 },
+    Rainbow { hue: f32, speed: Speed },
 }
 
-enum Animation {
-    None,
-    Disconnected { offset: f32 },
-    IndicateMaster { is_master: bool },
-    Rainbow { hue: f32 },
-}
+pub type LedSender = Sender<'static, ThreadModeRawMutex, Animation, 3>;
 
-pub type LedSender = Sender<'static, ThreadModeRawMutex, AnimationType, 3>;
-
-static LED_CHANNEL: Channel<ThreadModeRawMutex, AnimationType, 3> = Channel::new();
+static LED_CHANNEL: Channel<ThreadModeRawMutex, Animation, 3> = Channel::new();
 
 pub fn led_sender() -> LedSender {
     LED_CHANNEL.sender()
@@ -166,7 +163,9 @@ pub fn led_sender() -> LedSender {
 
 #[embassy_executor::task]
 pub async fn led_task(mut spis: Spis<'static>) -> ! {
-    let mut animation = Animation::None;
+    let mut animation = Animation::Static {
+        color: Led::rgb(0.0, 0.0, 0.0),
+    };
     let mut top_strip: LedStrip<57> = LedStrip::new();
     let mut previous_time = embassy_time::Instant::now();
 
@@ -181,31 +180,24 @@ pub async fn led_task(mut spis: Spis<'static>) -> ! {
             pin_mut!(timer_future);
 
             match select(receive_future, timer_future).await {
-                Either::Left((animation_type, _)) => {
-                    match animation_type {
-                        AnimationType::Disconnected => {
-                            animation = Animation::Disconnected { offset: 0.0 };
-
-                            let color = palette::rgb::Rgb::<Linear<f32>, f32>::new(0.0, 0.5, 0.0);
-                            let (red, green, blue) = color.into_components();
-                            let led = Led::rgb(red, green, blue);
+                Either::Left((new_animation, _)) => {
+                    match new_animation {
+                        Animation::Static { color } => {
+                            top_strip.insert_uniform_barrier(color);
+                        }
+                        Animation::Pulsate { color, offset, .. } => {
+                            // Between 0 and 1
+                            let brightness = 0.5 + (libm::sin(offset as f64) * 0.5);
+                            let led = Led::rgb(
+                                color.red * brightness as f32,
+                                color.green * brightness as f32,
+                                color.blue * brightness as f32,
+                            );
 
                             top_strip.insert_uniform_barrier(led);
                         }
-                        AnimationType::IndicateMaster { is_master } => {
-                            animation = Animation::IndicateMaster { is_master };
-
-                            let led = match is_master {
-                                true => Led::rgb(1.0, 1.0, 1.0),
-                                false => Led::rgb(0.0, 0.0, 0.0),
-                            };
-
-                            top_strip.insert_uniform_barrier(led);
-                        }
-                        AnimationType::Rainbow => {
-                            animation = Animation::Rainbow { hue: 0.0 };
-
-                            let color = palette::Hsl::<palette::encoding::Srgb, f32>::new(0.0, 1.0, 0.5);
+                        Animation::Rainbow { hue, .. } => {
+                            let color = palette::Hsl::<palette::encoding::Srgb, f32>::new(hue, 1.0, 0.5);
                             let color = palette::rgb::Rgb::from_color(color);
                             let (red, green, blue) = color.into_linear().into_components();
                             let led = Led::rgb(red, green, blue);
@@ -213,6 +205,8 @@ pub async fn led_task(mut spis: Spis<'static>) -> ! {
                             top_strip.insert_uniform_barrier(led);
                         }
                     }
+
+                    animation = new_animation;
                     break;
                 }
                 Either::Right((_, saved_receive_future)) => {
@@ -226,29 +220,23 @@ pub async fn led_task(mut spis: Spis<'static>) -> ! {
                         }
                     } else {
                         match &mut animation {
-                            Animation::None => {
-                                top_strip.set_uniform_color(Led::rgb(0.0, 0.0, 0.0));
+                            Animation::Static { color } => {
+                                top_strip.set_uniform_color(*color);
                             }
-                            Animation::Disconnected { offset } => {
-                                *offset += 3.0 * elapsed_time;
+                            Animation::Pulsate { offset, color, speed } => {
+                                *offset += speed.0 * elapsed_time;
                                 // Between 0 and 1
                                 let brightness = 0.5 + (libm::sin(*offset as f64) * 0.5);
-                                let color = palette::rgb::Rgb::<Linear<f32>, f32>::new(0.0, brightness as f32, 0.0);
-                                let (red, green, blue) = color.into_components();
-                                let led = Led::rgb(red, green, blue);
+                                let led = Led::rgb(
+                                    color.red * brightness as f32,
+                                    color.green * brightness as f32,
+                                    color.blue * brightness as f32,
+                                );
 
                                 top_strip.set_uniform_color(led);
                             }
-                            Animation::IndicateMaster { is_master } => {
-                                let led = match is_master {
-                                    true => Led::rgb(1.0, 1.0, 1.0),
-                                    false => Led::rgb(0.0, 0.0, 0.0),
-                                };
-
-                                top_strip.set_uniform_color(led);
-                            }
-                            Animation::Rainbow { hue } => {
-                                *hue += 30.0 * elapsed_time;
+                            Animation::Rainbow { hue, speed } => {
+                                *hue += speed.0 * elapsed_time;
 
                                 let color = palette::Hsl::<palette::encoding::Srgb, f32>::new(*hue, 1.0, 0.5);
                                 let color = palette::rgb::Rgb::from_color(color);

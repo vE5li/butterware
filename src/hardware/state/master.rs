@@ -64,7 +64,7 @@ where
         self.active_layers.last().map(|layer| layer.layer_index).unwrap_or(0)
     }
 
-    pub fn apply(&mut self, mut key_state: u64) -> Option<(usize, u64, u64)> {
+    pub async fn apply(&mut self, mut key_state: u64) -> Option<(usize, u64, u64)> {
         let mut injected_keys = 0;
 
         // TODO: make key_state immutable and copy to modify instead.
@@ -125,10 +125,10 @@ where
                         if key_state.test_bit(key_index) {
                             match special_action {
                                 crate::keys::SpecialAction::RemoveBond { bond_slot } => {
-                                    FlashTransaction::new().remove_bond(*bond_slot).try_apply();
+                                    FlashTransaction::new().remove_bond(*bond_slot).apply().await;
                                 }
                                 crate::keys::SpecialAction::SwitchAnimation { animation } => {
-                                    FlashTransaction::new().switch_animation(*animation).try_apply();
+                                    FlashTransaction::new().switch_animation(*animation).apply().await;
                                 }
                             }
 
