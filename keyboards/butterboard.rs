@@ -14,6 +14,8 @@ pub struct Butterboard {
 
 register_layers!(Butterboard, ButterboardLayers, [BASE, SPECIAL, TEST]);
 
+//register_callbacks!(Butterboard, ButterboardCallbacks, [NextAnimation]);
+
 #[rustfmt::skip]
 macro_rules! new_layer {
     (
@@ -69,7 +71,7 @@ impl Butterboard {
     ];
     #[rustfmt::skip]
     const BASE: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
-        Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[0] }), Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[1] }), Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[2] }), Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[3] }), Mapping::Special(SpecialAction::SwitchAnimation { animation: Self::ANIMATIONS[4] }), J, L, U, Y, Y,
+        Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Z, X, C, D, Mapping::tap_layer(ButterboardLayers::TEST, V), K, H, H, H, Mapping::tap_layer(ButterboardLayers::TEST, H),
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
@@ -84,13 +86,12 @@ impl Butterboard {
     const SPE_SPC: Mapping = Mapping::tap_layer(ButterboardLayers::SPECIAL, SPACE);
     #[rustfmt::skip]
     const TEST: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
-        Q, W, F, P, B, J, L, U, Y, Y,
+        Q, W, F, P, Mapping::Special(SpecialAction::Callback(0)), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(ButterboardLayers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
 
-    #[allow(unused)]
     async fn next_animation(&mut self) {
         // Go to next animation.
         self.current_animation = (self.current_animation + 1) % Self::ANIMATIONS.len();
@@ -126,11 +127,12 @@ impl Keyboard for Butterboard {
         Self { current_animation }
     }
 
-    /*async fn callback(&mut self, callback: Callback) {
+    async fn callback(&mut self, callback: u32) {
         match callback {
-            NextAnimation => self.next_animation().await,
+            0 => self.next_animation().await,
+            _ => defmt::warn!("not implemented"),
         }
-    }*/
+    }
 
     async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
         use embassy_nrf::interrupt::InterruptExt;

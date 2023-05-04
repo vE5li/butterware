@@ -64,7 +64,7 @@ where
         self.active_layers.last().map(|layer| layer.layer_index).unwrap_or(0)
     }
 
-    pub async fn apply(&mut self, mut key_state: u64) -> Option<(usize, u64, u64)> {
+    pub async fn apply(&mut self, keyboard: &mut K, mut key_state: u64) -> Option<(usize, u64, u64)> {
         let mut injected_keys = 0;
 
         // TODO: make key_state immutable and copy to modify instead.
@@ -129,6 +129,9 @@ where
                                 }
                                 crate::keys::SpecialAction::SwitchAnimation { animation } => {
                                     FlashTransaction::new().switch_animation(*animation).apply().await;
+                                }
+                                crate::keys::SpecialAction::Callback(id) => {
+                                    keyboard.callback(*id).await;
                                 }
                             }
 

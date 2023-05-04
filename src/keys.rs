@@ -6,6 +6,7 @@ pub struct Layer(pub usize);
 pub enum SpecialAction {
     RemoveBond { bond_slot: BondSlot },
     SwitchAnimation { animation: Animation },
+    Callback(u32),
 }
 
 pub enum Mapping {

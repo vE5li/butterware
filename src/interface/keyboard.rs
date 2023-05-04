@@ -60,6 +60,11 @@ where
     async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }>;
 
     async fn post_initialize(&mut self) {}
+
+    async fn callback(&mut self, id: u32) {
+        let _ = id;
+        defmt::warn!("Callback handler not defined");
+    }
 }
 
 pub trait KeyboardExtension {

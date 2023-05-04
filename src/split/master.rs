@@ -15,6 +15,7 @@ use crate::led::LedSender;
 
 pub async fn do_master<K>(
     softdevice: &Softdevice,
+    keyboard: &mut K,
     server: &Server,
     key_state_server: &KeyStateServer,
     bonder: &'static Bonder,
@@ -62,6 +63,7 @@ where
 
         let host_connection = loop {
             let inner_future = master_scan(
+                keyboard,
                 &mut keyboard_state,
                 pins,
                 key_state_server,
@@ -89,6 +91,7 @@ where
 
         // Run until the host disconnects.
         master_connection(
+            keyboard,
             &mut keyboard_state,
             pins,
             server,
@@ -103,6 +106,7 @@ where
 }
 
 async fn master_scan<K>(
+    keyboard: &mut K,
     state: &mut MasterState<K>,
     pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
     key_state_server: &KeyStateServer,
@@ -173,13 +177,14 @@ where
         // of the scope above.
         state.slave_raw_state = slave_raw_state;
 
-        if let Some(output_state) = state.apply(key_state).await {
+        if let Some(output_state) = state.apply(keyboard, key_state).await {
             return Ok(output_state);
         }
     }
 }
 
 async fn master_connection<K>(
+    keyboard: &mut K,
     state: &mut MasterState<K>,
     pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
     server: &Server,
@@ -198,7 +203,15 @@ where
     pin_mut!(host_future);
 
     loop {
-        let inner_future = master_scan(state, pins, key_state_server, slave_connection, flash_client, flash_operations);
+        let inner_future = master_scan(
+            keyboard,
+            state,
+            pins,
+            key_state_server,
+            slave_connection,
+            flash_client,
+            flash_operations,
+        );
         pin_mut!(inner_future);
 
         match select(host_future, inner_future).await {

@@ -220,9 +220,7 @@ pub async fn led_task(mut spis: Spis<'static>) -> ! {
                         }
                     } else {
                         match &mut animation {
-                            Animation::Static { color } => {
-                                top_strip.set_uniform_color(*color);
-                            }
+                            Animation::Static { .. } => {}
                             Animation::Pulsate { offset, color, speed } => {
                                 *offset += speed.0 * elapsed_time;
                                 // Between 0 and 1

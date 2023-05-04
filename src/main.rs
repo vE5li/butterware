@@ -170,6 +170,7 @@ async fn main(spawner: Spawner) -> ! {
             true => {
                 split::do_master::<Used>(
                     softdevice,
+                    &mut keyboard,
                     &server,
                     &key_state_server,
                     bonder,
