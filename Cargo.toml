@@ -38,3 +38,4 @@ nb = "1.1.0"
 elain = "0.3.0"
 palette = { version = "0.7.1", default-features = false, features = ["libm"] }
 libm = "0.2.6"
+bitflags = "2.2.1"

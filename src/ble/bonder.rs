@@ -2,7 +2,7 @@ use nrf_softdevice::ble::gatt_server::set_sys_attrs;
 use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
 use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
 
-use crate::flash::{apply_flash_operation, get_settings, BondSlot, FlashOperation, FlashToken, Peer, SystemAttributes, NO_ADDRESS};
+use crate::flash::{get_settings, BondSlot, FlashToken, FlashTransaction, Peer, SystemAttributes, NO_ADDRESS};
 
 pub struct Bonder {
     flash_token: FlashToken,
@@ -42,12 +42,10 @@ impl SecurityHandler for Bonder {
 
         // FIX: Figure out how to choose another slot if all of them are full
         if let Some(free_slot) = free_slot {
+            let bond_slot = BondSlot(free_slot);
             let peer = Peer { master_id, key, peer_id };
-            let flash_operation = FlashOperation::StorePeer {
-                slot: BondSlot(free_slot),
-                peer,
-            };
-            apply_flash_operation(flash_operation);
+
+            FlashTransaction::new().store_peer(bond_slot, peer).try_apply();
         }
     }
 
@@ -82,15 +80,14 @@ impl SecurityHandler for Bonder {
         }
 
         if let Some(slot) = slot {
+            let bond_slot = BondSlot(slot);
             let mut system_attributes = SystemAttributes::new();
             let length = defmt::unwrap!(gatt_server::get_sys_attrs(conn, &mut system_attributes.data));
             system_attributes.length = length;
 
-            let flash_operation = FlashOperation::StoreSystemAttributes {
-                slot: BondSlot(slot),
-                system_attributes,
-            };
-            apply_flash_operation(flash_operation);
+            FlashTransaction::new()
+                .store_system_attributes(bond_slot, system_attributes)
+                .try_apply();
         }
     }
 

@@ -1,7 +1,7 @@
 use embassy_time::driver::now;
 
 use super::KeyState;
-use crate::flash::{FlashOperation, apply_flash_operation};
+use crate::flash::FlashTransaction;
 use crate::hardware::{ActiveLayer, DebouncedKey, TestBit};
 use crate::interface::{Keyboard, KeyboardExtension};
 use crate::keys::Mapping;
@@ -125,12 +125,10 @@ where
                         if key_state.test_bit(key_index) {
                             match special_action {
                                 crate::keys::SpecialAction::RemoveBond { bond_slot } => {
-                                    let flash_operation = FlashOperation::RemoveBond(*bond_slot);
-                                    apply_flash_operation(flash_operation);
+                                    FlashTransaction::new().remove_bond(*bond_slot).try_apply();
                                 }
                                 crate::keys::SpecialAction::SwitchAnimation { animation } => {
-                                    let flash_operation = FlashOperation::SwitchAnimation(*animation);
-                                    apply_flash_operation(flash_operation);
+                                    FlashTransaction::new().switch_animation(*animation).try_apply();
                                 }
                             }
 

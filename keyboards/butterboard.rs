@@ -2,7 +2,7 @@ use embassy_cortex_m::interrupt::Interrupt;
 use embassy_nrf::gpio::Pin;
 use embassy_nrf::{interrupt, Peripherals};
 
-use crate::flash::{apply_flash_operation, get_settings, FlashOperation, FlashToken};
+use crate::flash::{get_settings, FlashToken, FlashTransaction};
 use crate::hardware::{ScanPinConfig, SpiConfig};
 use crate::interface::{Keyboard, Scannable};
 use crate::keys::*;
@@ -63,18 +63,20 @@ impl Butterboard {
     ];
 
     #[allow(unused)]
-    fn next_animation(&mut self) {
+    async fn next_animation(&mut self) {
         // Go to next animation.
         self.current_animation = (self.current_animation + 1) % Self::ANIMATIONS.len();
 
-        // Update the lighting on both sides and in the firmware flash.
         let animation_type = Self::ANIMATIONS[self.current_animation];
-        let flash_operation = FlashOperation::SwitchAnimation(animation_type);
-        apply_flash_operation(flash_operation);
 
-        // Save custom data to our board flash.
-        let flash_operation = FlashOperation::StoreBoardFlash(self.current_animation);
-        apply_flash_operation(flash_operation);
+        FlashTransaction::new()
+            // Update the lighting on both sides and in the firmware flash.
+            .switch_animation(animation_type)
+            // Save custom data to our board flash.
+            .store_board_flash(self.current_animation)
+            // Apply operations
+            .apply()
+            .await;
     }
 }
 

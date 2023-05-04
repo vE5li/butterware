@@ -16,7 +16,6 @@ use crate::led::{led_sender, AnimationType};
 pub const NO_ADDRESS: Address = Address { flags: 0, bytes: [0; 6] };
 
 const FLASH_CHANNEL_SIZE: usize = 10;
-
 static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE> = Channel::new();
 static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE> = Channel::new();
 
@@ -31,13 +30,67 @@ pub fn slave_flash_receiver() -> SlaveFlashReceiver {
     SLAVE_FLASH_OPERATIONS.receiver()
 }
 
-pub fn apply_flash_operation(flash_operation: FlashOperation) {
-    if FLASH_OPERATIONS.sender().try_send(flash_operation).is_err() {
-        defmt::error!("Failed to send flash operation to flash task");
+pub struct FlashTransaction<const N: usize> {
+    operations: [FlashOperation; N],
+}
+
+impl FlashTransaction<0> {
+    pub fn new() -> Self {
+        Self { operations: [] }
+    }
+}
+
+impl<const N: usize> FlashTransaction<N> {
+    fn queue_inner(self, operation: FlashOperation) -> FlashTransaction<{ N + 1 }> {
+        let mut operations: [FlashOperation; N + 1] = unsafe { MaybeUninit::zeroed().assume_init() };
+        operations[0..N].copy_from_slice(&self.operations);
+        operations[N] = operation;
+        FlashTransaction { operations }
     }
 
-    if SLAVE_FLASH_OPERATIONS.sender().try_send(flash_operation).is_err() {
-        defmt::error!("Failed to send flash operation to slave");
+    #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
+    pub fn store_peer(self, slot: BondSlot, peer: Peer) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(FlashOperation::StorePeer { slot, peer })
+    }
+
+    #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
+    pub fn store_system_attributes(self, slot: BondSlot, system_attributes: SystemAttributes) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(FlashOperation::StoreSystemAttributes { slot, system_attributes })
+    }
+
+    #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
+    pub fn remove_bond(self, slot: BondSlot) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(FlashOperation::RemoveBond(slot))
+    }
+
+    #[cfg(feature = "lighting")]
+    #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
+    pub fn switch_animation(self, animation_type: AnimationType) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(FlashOperation::SwitchAnimation(animation_type))
+    }
+
+    #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
+    pub fn store_board_flash(self, board_flash: <crate::Used as Keyboard>::BoardFlash) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(FlashOperation::StoreBoardFlash(board_flash))
+    }
+
+    pub async fn apply(self) {
+        for operation in self.operations.into_iter().chain(core::iter::once(FlashOperation::Apply)) {
+            FLASH_OPERATIONS.sender().send(operation).await;
+            SLAVE_FLASH_OPERATIONS.sender().send(operation).await;
+        }
+    }
+
+    pub fn try_apply(self) {
+        for operation in self.operations.into_iter().chain(core::iter::once(FlashOperation::Apply)) {
+            if FLASH_OPERATIONS.sender().try_send(operation).is_err() {
+                defmt::error!("Failed to send flash operation to flash task");
+            }
+
+            if SLAVE_FLASH_OPERATIONS.sender().try_send(operation).is_err() {
+                defmt::error!("Failed to send flash operation to slave");
+            }
+        }
     }
 }
 
@@ -60,6 +113,7 @@ pub enum FlashOperation {
     #[cfg(feature = "lighting")]
     SwitchAnimation(AnimationType),
     StoreBoardFlash(<crate::Used as Keyboard>::BoardFlash),
+    Apply,
 }
 
 impl FixedGattValue for FlashOperation {
@@ -192,14 +246,12 @@ mod token {
         let bytes = unsafe { core::mem::transmute::<&AlignedFlashSettings, &[u8; core::mem::size_of::<AlignedFlashSettings>()]>(settings) };
 
         if erase {
-            defmt::trace!("start erase page");
+            defmt::trace!("erasing page");
             defmt::unwrap!(flash.erase(flash_token.address, flash_token.address + nvmc::PAGE_SIZE as u32).await);
-            defmt::trace!("done erase page");
         }
 
-        defmt::trace!("starting write with value: {:#?}", bytes);
+        defmt::trace!("writing with value: {:#?}", bytes);
         defmt::unwrap!(flash.write(flash_token.address, bytes).await);
-        defmt::trace!("done with write");
     }
 }
 
@@ -216,6 +268,18 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
 
     pin_mut!(flash);
 
+    bitflags::bitflags! {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        struct ApplyFlags: u32 {
+            const NONE = 0;
+            const ERASE = 0b00000001;
+            const WRITE = 0b00000010;
+            const ERASE_AND_WRITE = Self::ERASE.bits() | Self::WRITE.bits();
+        }
+    }
+
+    let mut apply_flags = ApplyFlags::NONE;
+
     loop {
         let operation = receiver.recv().await;
 
@@ -225,14 +289,14 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
 
                 // Since we are potentially trying to set bits to 1 that are currently 0, we
                 // need to erase the section before writing.
-                token::write_to_flash(&mut flash, token, settings, true).await;
+                apply_flags |= ApplyFlags::ERASE_AND_WRITE;
             }
             FlashOperation::StoreSystemAttributes { slot, system_attributes } => {
                 settings.settings.bonds[slot.0].system_attributes = system_attributes;
 
                 // Since we are potentially trying to set bits to 1 that are currently 0, we
                 // need to erase the section before writing.
-                token::write_to_flash(&mut flash, token, settings, true).await;
+                apply_flags |= ApplyFlags::ERASE_AND_WRITE;
             }
             FlashOperation::RemoveBond(slot) => {
                 if settings.settings.bonds[slot.0].peer.peer_id.addr != NO_ADDRESS {
@@ -240,18 +304,18 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
 
                     // Since all we are doing is setting the bits of a peer to 0, we can write
                     // without erasing first.
-                    token::write_to_flash(&mut flash, token, settings, false).await;
+                    apply_flags |= ApplyFlags::WRITE;
                 }
             }
             FlashOperation::SwitchAnimation(animation_type) => {
                 if settings.settings.animation != animation_type {
-                    led_sender.send(animation_type).await;
-
                     settings.settings.animation = animation_type;
+
+                    led_sender.send(animation_type).await;
 
                     // Since we are potentially trying to set bits to 1 that are currently 0, we
                     // need to erase the section before writing.
-                    token::write_to_flash(&mut flash, token, settings, true).await;
+                    apply_flags |= ApplyFlags::ERASE_AND_WRITE;
                 }
             }
             FlashOperation::StoreBoardFlash(board_flash) => {
@@ -259,7 +323,14 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
 
                 // Since we are potentially trying to set bits to 1 that are currently 0, we
                 // need to erase the section before writing.
-                token::write_to_flash(&mut flash, token, settings, true).await;
+                apply_flags |= ApplyFlags::ERASE_AND_WRITE;
+            }
+            FlashOperation::Apply => {
+                if apply_flags.contains(ApplyFlags::WRITE) {
+                    let erase = apply_flags.contains(ApplyFlags::ERASE);
+                    token::write_to_flash(&mut flash, token, settings, erase).await;
+                }
+                apply_flags = ApplyFlags::NONE;
             }
         }
     }
