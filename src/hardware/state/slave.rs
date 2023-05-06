@@ -1,25 +1,15 @@
 use super::KeyState;
 use crate::hardware::DebouncedKey;
-use crate::interface::Keyboard;
+use crate::interface::Scannable;
 
 // TODO: make fileds private?
-pub struct SlaveState<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
-    pub keys: [[DebouncedKey<K>; K::ROWS]; K::COLUMNS],
+pub struct SlaveState {
+    pub keys: [[DebouncedKey; <crate::Used as Scannable>::ROWS]; <crate::Used as Scannable>::COLUMNS],
     pub previous_key_state: u64,
 }
 
-impl<K> KeyState<K> for SlaveState<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
-    fn key(&mut self, column: usize, row: usize) -> &mut DebouncedKey<K> {
+impl KeyState for SlaveState {
+    fn key(&mut self, column: usize, row: usize) -> &mut DebouncedKey {
         &mut self.keys[column][row]
     }
 
@@ -30,18 +20,13 @@ where
     }
 }
 
-impl<K> SlaveState<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
-    const DEFAULT_KEY: DebouncedKey<K> = DebouncedKey::new();
-    const DEFAULT_ROW: [DebouncedKey<K>; K::ROWS] = [Self::DEFAULT_KEY; K::ROWS];
+impl SlaveState {
+    const DEFAULT_KEY: DebouncedKey = DebouncedKey::new();
+    const DEFAULT_ROW: [DebouncedKey; <crate::Used as Scannable>::ROWS] = [Self::DEFAULT_KEY; <crate::Used as Scannable>::ROWS];
 
     pub const fn new() -> Self {
         Self {
-            keys: [Self::DEFAULT_ROW; K::COLUMNS],
+            keys: [Self::DEFAULT_ROW; <crate::Used as Scannable>::COLUMNS],
             previous_key_state: 0,
         }
     }

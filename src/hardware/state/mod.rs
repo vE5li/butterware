@@ -6,27 +6,20 @@ use embassy_time::{Duration, Timer};
 pub use self::master::MasterState;
 pub use self::slave::SlaveState;
 use super::{DebouncedKey, ScanPins};
-use crate::interface::Keyboard;
+use crate::interface::Scannable;
 
-pub trait KeyState<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
-    fn key(&mut self, column: usize, row: usize) -> &mut DebouncedKey<K>;
+pub trait KeyState {
+    fn key(&mut self, column: usize, row: usize) -> &mut DebouncedKey;
 
     /// Update the key state and check if the external state needs to be
     /// updated.
     fn update_needs_synchronize(&mut self, new_state: u64) -> bool;
 }
 
-pub async fn do_scan<'a, K>(state: &mut impl KeyState<K>, pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>) -> u64
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
+pub async fn do_scan(
+    state: &mut impl KeyState,
+    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
+) -> u64 {
     loop {
         let mut key_state = 0;
         let mut offset = 0;

@@ -1,6 +1,8 @@
-use nrf_softdevice::{Softdevice, ble::{peripheral, gatt_server, central, Address}};
+use nrf_softdevice::ble::{central, gatt_server, peripheral, Address};
+use nrf_softdevice::Softdevice;
 
-use crate::{ble::{MasterServer, MasterServerEvent, MasterServiceEvent, MasterServiceClient}, hardware::generate_random_u32};
+use crate::ble::{MasterServer, MasterServerEvent, MasterServiceClient, MasterServiceEvent};
+use crate::hardware::generate_random_u32;
 
 #[allow(dead_code)]
 pub async fn advertise_determine_master(softdevice: &Softdevice, server: &MasterServer, adv_data: &[u8], scan_data: &[u8]) -> bool {

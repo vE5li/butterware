@@ -13,23 +13,18 @@ use crate::hardware::{MasterState, ScanPins, TestBit};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::led::LedSender;
 
-pub async fn do_master<K>(
+pub async fn do_master(
     softdevice: &Softdevice,
-    keyboard: &mut K,
+    keyboard: &mut crate::Used,
     server: &Server,
     key_state_server: &KeyStateServer,
     bonder: &'static Bonder,
     adv_data: &[u8],
     scan_data: &[u8],
-    pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
+    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     #[cfg(feature = "lighting")] flash_token: FlashToken,
     #[cfg(feature = "lighting")] led_sender: &LedSender,
-) -> Result<Infallible, HalfDisconnected>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
+) -> Result<Infallible, HalfDisconnected> {
     defmt::debug!("stating master");
 
     // Connect to the other half
@@ -50,9 +45,9 @@ where
     led_sender.send(animation).await;
 
     // Set unified address.
-    set_address(softdevice, &K::ADDRESS);
+    set_address(softdevice, &<crate::Used as Keyboard>::ADDRESS);
 
-    let mut keyboard_state = MasterState::<K>::new();
+    let mut keyboard_state = MasterState::new();
 
     loop {
         // Advertise
@@ -105,20 +100,15 @@ where
     }
 }
 
-async fn master_scan<K>(
-    keyboard: &mut K,
-    state: &mut MasterState<K>,
-    pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
+async fn master_scan(
+    keyboard: &mut crate::Used,
+    state: &mut MasterState,
+    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     key_state_server: &KeyStateServer,
     slave_connection: &Connection,
     flash_client: &FlashServiceClient,
     flash_operations: &SlaveFlashReceiver,
-) -> Result<(usize, u64, u64), HalfDisconnected>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
+) -> Result<(usize, u64, u64), HalfDisconnected> {
     loop {
         let master_raw_state = state.master_raw_state;
         let slave_raw_state = state.slave_raw_state;
@@ -150,10 +140,10 @@ where
                 // Master side state changed.
                 crate::future::Either3::First(key_state) => {
                     #[cfg(feature = "left")]
-                    let combined_state = slave_raw_state | (key_state << K::KEY_COUNT);
+                    let combined_state = slave_raw_state | (key_state << <crate::Used as KeyboardExtension>::KEYS_PER_SIDE);
 
                     #[cfg(feature = "right")]
-                    let combined_state = (slave_raw_state << K::KEY_COUNT) | key_state;
+                    let combined_state = (slave_raw_state << <crate::Used as KeyboardExtension>::KEYS_PER_SIDE) | key_state;
 
                     (combined_state, slave_raw_state)
                 }
@@ -162,10 +152,10 @@ where
                     let key_state = key_state.map_err(|_| HalfDisconnected)?;
 
                     #[cfg(feature = "left")]
-                    let combined_state = (master_raw_state << K::KEY_COUNT) | key_state;
+                    let combined_state = (master_raw_state << <crate::Used as KeyboardExtension>::KEYS_PER_SIDE) | key_state;
 
                     #[cfg(feature = "right")]
-                    let combined_state = master_raw_state | (key_state << K::KEY_COUNT);
+                    let combined_state = master_raw_state | (key_state << <crate::Used as KeyboardExtension>::KEYS_PER_SIDE);
 
                     (combined_state, key_state)
                 }
@@ -183,22 +173,17 @@ where
     }
 }
 
-async fn master_connection<K>(
-    keyboard: &mut K,
-    state: &mut MasterState<K>,
-    pins: &mut ScanPins<'_, { K::COLUMNS }, { K::ROWS }>,
+async fn master_connection(
+    keyboard: &mut crate::Used,
+    state: &mut MasterState,
+    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     server: &Server,
     key_state_server: &KeyStateServer,
     slave_connection: &Connection,
     host_connection: &Connection,
     flash_client: &FlashServiceClient,
     flash_operations: &SlaveFlashReceiver,
-) -> Result<(), HalfDisconnected>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
+) -> Result<(), HalfDisconnected> {
     let host_future = gatt_server::run(host_connection, server, |_| {});
     pin_mut!(host_future);
 
@@ -224,14 +209,16 @@ where
 
                 // If there are any, send the input once with the injected keys.
                 if injected_keys != 0 {
-                    //let input_report = InputReport::new::<K>(active_layer, key_state | injected_keys);
-                    //defmt::unwrap!(server.hid_service.input_report_notify(&host_connection, &input_report));
-                    send_input_report::<K>(server, &host_connection, active_layer, key_state | injected_keys);
+                    //let input_report = InputReport::new(active_layer, key_state |
+                    // injected_keys); defmt::unwrap!(server.hid_service.
+                    // input_report_notify(&host_connection, &input_report));
+                    send_input_report(server, &host_connection, active_layer, key_state | injected_keys);
                 }
 
-                //let input_report = InputReport::new::<K>(active_layer, key_state);
-                //defmt::unwrap!(server.hid_service.input_report_notify(&host_connection, &input_report));
-                send_input_report::<K>(server, &host_connection, active_layer, key_state);
+                //let input_report = InputReport::new(active_layer, key_state);
+                //defmt::unwrap!(server.hid_service.input_report_notify(&host_connection,
+                // &input_report));
+                send_input_report(server, &host_connection, active_layer, key_state);
 
                 host_future = passed_host_future;
             }
@@ -239,12 +226,7 @@ where
     }
 }
 
-pub fn send_input_report<K>(server: &Server, connection: &Connection, active_layer: usize, key_state: u64)
-where
-    K: Keyboard,
-    [(); <K as Scannable>::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); <K as Scannable>::COLUMNS * <K as Scannable>::ROWS * 2]:,
-{
+pub fn send_input_report(server: &Server, connection: &Connection, active_layer: usize, key_state: u64) {
     const SCAN_CODE_POSITION: usize = 2;
     const REPORT_SIZE: usize = 8;
 
@@ -252,16 +234,16 @@ where
     let mut offset = SCAN_CODE_POSITION;
 
     // temporary assert to avoid bugs while implementing.
-    assert!(<K as Scannable>::COLUMNS * <K as Scannable>::ROWS * 2 <= 64);
+    assert!(<crate::Used as KeyboardExtension>::KEYS_TOTAL <= 64);
 
-    for index in 0..<K as Scannable>::COLUMNS * <K as Scannable>::ROWS * 2 {
+    for index in 0..<crate::Used as KeyboardExtension>::KEYS_TOTAL {
         if key_state.test_bit(index) {
             if offset == REPORT_SIZE {
                 input_report[SCAN_CODE_POSITION..REPORT_SIZE].fill(crate::keys::ERR_OVF.keycode());
                 break;
             }
 
-            let key = K::LAYER_LOOKUP[active_layer][index].keycode();
+            let key = <crate::Used as Keyboard>::LAYER_LOOKUP[active_layer][index].keycode();
             input_report[offset] = key;
             offset += 1;
         }

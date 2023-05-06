@@ -169,7 +169,7 @@ async fn main(spawner: Spawner) -> ! {
 
         let _ = match is_master {
             true => {
-                split::do_master::<Used>(
+                split::do_master(
                     softdevice,
                     &mut keyboard,
                     &server,
@@ -191,7 +191,7 @@ async fn main(spawner: Spawner) -> ! {
                 #[cfg(feature = "right")]
                 const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
 
-                split::do_slave::<Used>(
+                split::do_slave(
                     softdevice,
                     &flash_server,
                     &mut pins,

@@ -1,7 +1,7 @@
-use core::{pin::Pin, task::{Context, Poll}};
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use futures::Future;
-
 
 #[derive(Debug, Clone)]
 pub enum Either3<A, B, C> {
@@ -58,4 +58,3 @@ where
         Poll::Pending
     }
 }
-

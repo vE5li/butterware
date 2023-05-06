@@ -7,24 +7,19 @@ use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
 use crate::ble::{FlashServer, FlashServerEvent, FlashServiceEvent, KeyStateServiceClient};
-use crate::flash::{FlashToken, get_settings};
+use crate::flash::{get_settings, FlashToken};
 use crate::hardware::{ScanPins, SlaveState};
-use crate::interface::Keyboard;
+use crate::interface::Scannable;
 use crate::led::LedSender;
 
-pub async fn do_slave<'a, K>(
+pub async fn do_slave(
     softdevice: &Softdevice,
     flash_server: &FlashServer,
-    pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
+    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     address: &Address,
     #[cfg(feature = "lighting")] flash_token: FlashToken,
     #[cfg(feature = "lighting")] led_sender: &LedSender,
-) -> Result<Infallible, HalfDisconnected>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
+) -> Result<Infallible, HalfDisconnected> {
     let addresses = [address];
     let mut config = central::ConnectConfig::default();
     config.scan_config.whitelist = Some(&addresses);
@@ -32,7 +27,7 @@ where
     config.conn_params.max_conn_interval = 6;
     config.conn_params.conn_sup_timeout = 100; // 1 second timeout
 
-    let mut keyboard_state = SlaveState::<K>::new();
+    let mut keyboard_state = SlaveState::new();
 
     defmt::debug!("stating slave");
 
@@ -49,17 +44,12 @@ where
     slave_connection(&mut keyboard_state, pins, master_connection, flash_server).await
 }
 
-async fn slave_connection<'a, K>(
-    state: &mut SlaveState<K>,
-    pins: &mut ScanPins<'a, { K::COLUMNS }, { K::ROWS }>,
+async fn slave_connection(
+    state: &mut SlaveState,
+    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     master_connection: Connection,
     flash_server: &FlashServer,
-) -> Result<Infallible, HalfDisconnected>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
+) -> Result<Infallible, HalfDisconnected> {
     let key_state_client: KeyStateServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&master_connection).await);
     let flash_sender = crate::flash::flash_sender();
 

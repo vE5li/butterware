@@ -3,18 +3,13 @@ use embassy_time::driver::now;
 use super::KeyState;
 use crate::flash::FlashTransaction;
 use crate::hardware::{ActiveLayer, DebouncedKey, TestBit};
-use crate::interface::{Keyboard, KeyboardExtension};
+use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::Mapping;
 
 // TODO: make fileds private?
-pub struct MasterState<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
-    pub active_layers: heapless::Vec<ActiveLayer, { K::MAXIMUM_ACTIVE_LAYERS }>,
-    pub keys: [[DebouncedKey<K>; K::ROWS]; K::COLUMNS],
+pub struct MasterState {
+    pub active_layers: heapless::Vec<ActiveLayer, { <crate::Used as Scannable>::MAXIMUM_ACTIVE_LAYERS }>,
+    pub keys: [[DebouncedKey; <crate::Used as Scannable>::ROWS]; <crate::Used as Scannable>::COLUMNS],
     pub previous_key_state: u64,
     pub master_raw_state: u64,
     pub slave_raw_state: u64,
@@ -22,13 +17,8 @@ where
     pub lock_mask: u64,
 }
 
-impl<K> KeyState<K> for MasterState<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
-    fn key(&mut self, column: usize, row: usize) -> &mut DebouncedKey<K> {
+impl KeyState for MasterState {
+    fn key(&mut self, column: usize, row: usize) -> &mut DebouncedKey {
         &mut self.keys[column][row]
     }
 
@@ -39,19 +29,14 @@ where
     }
 }
 
-impl<K> MasterState<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
-    const DEFAULT_KEY: DebouncedKey<K> = DebouncedKey::new();
-    const DEFAULT_ROW: [DebouncedKey<K>; K::ROWS] = [Self::DEFAULT_KEY; K::ROWS];
+impl MasterState {
+    const DEFAULT_KEY: DebouncedKey = DebouncedKey::new();
+    const DEFAULT_ROW: [DebouncedKey; <crate::Used as Scannable>::ROWS] = [Self::DEFAULT_KEY; <crate::Used as Scannable>::ROWS];
 
     pub const fn new() -> Self {
         Self {
             active_layers: heapless::Vec::new(),
-            keys: [Self::DEFAULT_ROW; K::COLUMNS],
+            keys: [Self::DEFAULT_ROW; <crate::Used as Scannable>::COLUMNS],
             previous_key_state: 0,
             master_raw_state: 0,
             slave_raw_state: 0,
@@ -64,7 +49,7 @@ where
         self.active_layers.last().map(|layer| layer.layer_index).unwrap_or(0)
     }
 
-    pub async fn apply(&mut self, keyboard: &mut K, mut key_state: u64) -> Option<(usize, u64, u64)> {
+    pub async fn apply(&mut self, keyboard: &mut crate::Used, mut key_state: u64) -> Option<(usize, u64, u64)> {
         let mut injected_keys = 0;
 
         // TODO: make key_state immutable and copy to modify instead.
@@ -82,7 +67,7 @@ where
                 false => {
                     // Check if we want to execute the tap action for this layer (if
                     // present).
-                    if matches!(active_layer.tap_timer, Some(time) if now() - time < K::TAP_TIME) {
+                    if matches!(active_layer.tap_timer, Some(time) if now() - time < <crate::Used as Keyboard>::TAP_TIME) {
                         injected_keys.set_bit(key_index);
                     }
 
@@ -113,9 +98,9 @@ where
             // FIX: unclear what happens if we press multiple layer keys on the same
             // event
 
-            let active_layer = K::LAYER_LOOKUP[self.current_layer_index()];
+            let active_layer = <crate::Used as Keyboard>::LAYER_LOOKUP[self.current_layer_index()];
 
-            for key_index in 0..K::KEY_COUNT * 2 {
+            for key_index in 0..<crate::Used as KeyboardExtension>::KEYS_TOTAL {
                 // Get layer index and optional tap key.
                 let (layer_index, tap_timer) = match active_layer[key_index] {
                     Mapping::Key(..) => continue,
@@ -131,10 +116,6 @@ where
                                     FlashTransaction::new().switch_animation(*animation).apply().await;
                                 }
                                 crate::keys::SpecialAction::Callback(callback) => {
-                                    // FIX: Fix this. It's actually completely safe but Rust can't
-                                    // know that.
-                                    let callback =
-                                        unsafe { core::mem::transmute::<&<crate::Used as Keyboard>::Callbacks, &K::Callbacks>(callback) };
                                     keyboard.callback(callback.clone()).await;
                                 }
                             }

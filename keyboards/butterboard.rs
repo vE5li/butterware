@@ -4,7 +4,7 @@ use embassy_nrf::{interrupt, Peripherals};
 
 use crate::flash::{get_settings, FlashToken, FlashTransaction};
 use crate::hardware::{ScanPinConfig, SpiConfig};
-use crate::interface::{Keyboard, Scannable};
+use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::*;
 use crate::led::{Animation, Led, Speed};
 
@@ -75,14 +75,14 @@ impl Butterboard {
         },
     ];
     #[rustfmt::skip]
-    const BASE: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
+    const BASE: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
         Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Z, X, C, D, Mapping::tap_layer(Layers::TEST, V), K, H, H, H, Mapping::tap_layer(Layers::TEST, H),
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
     #[rustfmt::skip]
-    const SPECIAL: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
+    const SPECIAL: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
         N1, N2, N3, N4, N5, N6, N7, N8, N9, N0,
         A, R, S, T, G, M, N, E, I, O,
         Z, X, C, D, V, K, H, H, H, H,
@@ -90,7 +90,7 @@ impl Butterboard {
     ];
     const SPE_SPC: Mapping = Mapping::tap_layer(Layers::SPECIAL, SPACE);
     #[rustfmt::skip]
-    const TEST: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
+    const TEST: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
         Q, W, F, P, Callbacks::NextAnimation.mapping(), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(Layers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
@@ -124,7 +124,7 @@ impl Keyboard for Butterboard {
     type Callbacks = Callbacks;
 
     const DEVICE_NAME: &'static [u8] = b"Butterboard";
-    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]] = Layers::LAYER_LOOKUP;
+    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::KEYS_TOTAL]] = Layers::LAYER_LOOKUP;
 
     fn new(flash_token: FlashToken) -> Self {
         // Get the flash settings and extract the custom data stored for this board.

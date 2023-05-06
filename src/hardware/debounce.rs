@@ -1,32 +1,18 @@
-use core::marker::PhantomData;
-
 use crate::interface::Keyboard;
 
 #[derive(Debug, Clone, Copy)]
-pub struct DebouncedKey<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
+pub struct DebouncedKey {
     last_state_change: u64,
     internal_state: bool,
     output_state: bool,
-    phantom_data: PhantomData<K>,
 }
 
-impl<K> DebouncedKey<K>
-where
-    K: Keyboard,
-    [(); K::MAXIMUM_ACTIVE_LAYERS]:,
-    [(); K::COLUMNS * K::ROWS * 2]:,
-{
+impl DebouncedKey {
     pub const fn new() -> Self {
         Self {
             last_state_change: 0,
             internal_state: false,
             output_state: false,
-            phantom_data: PhantomData,
         }
     }
 
@@ -47,7 +33,7 @@ where
         // Branchless set of output_state. If the number of ticks since the last state
         // change is greater that the debounce ticks we set output_state =
         // internal_state.
-        let debounced = now - self.last_state_change >= K::DEBOUNCE_TICKS;
+        let debounced = now - self.last_state_change >= <crate::Used as Keyboard>::DEBOUNCE_TICKS;
         self.output_state =
             (BOOL_STATE[!debounced as usize] && self.output_state) || (BOOL_STATE[debounced as usize] && self.internal_state);
     }
