@@ -17,9 +17,9 @@ pub struct Butterboard {
     persistent_data: PersistentData,
 }
 
-register_layers!(Butterboard, ButterboardLayers, [BASE, SPECIAL, TEST]);
+register_layers!(Butterboard, Layers, [BASE, SPECIAL, TEST]);
 
-//register_callbacks!(Butterboard, ButterboardCallbacks, [NextAnimation]);
+register_callbacks!(Butterboard, Callbacks, [NextAnimation]);
 
 #[rustfmt::skip]
 macro_rules! new_layer {
@@ -78,7 +78,7 @@ impl Butterboard {
     const BASE: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
         Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
-        Z, X, C, D, Mapping::tap_layer(ButterboardLayers::TEST, V), K, H, H, H, Mapping::tap_layer(ButterboardLayers::TEST, H),
+        Z, X, C, D, Mapping::tap_layer(Layers::TEST, V), K, H, H, H, Mapping::tap_layer(Layers::TEST, H),
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
     #[rustfmt::skip]
@@ -88,12 +88,12 @@ impl Butterboard {
         Z, X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
     ];
-    const SPE_SPC: Mapping = Mapping::tap_layer(ButterboardLayers::SPECIAL, SPACE);
+    const SPE_SPC: Mapping = Mapping::tap_layer(Layers::SPECIAL, SPACE);
     #[rustfmt::skip]
     const TEST: [Mapping; <Butterboard as Scannable>::COLUMNS * <Butterboard as Scannable>::ROWS * 2] = new_layer![
-        Q, W, F, P, Mapping::Special(SpecialAction::Callback(0)), J, L, U, Y, Y,
+        Q, W, F, P, Callbacks::NextAnimation.mapping(), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
-        Mapping::tap_layer(ButterboardLayers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
+        Mapping::tap_layer(Layers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
 
@@ -121,9 +121,10 @@ impl Scannable for Butterboard {
 
 impl Keyboard for Butterboard {
     type BoardFlash = PersistentData;
+    type Callbacks = Callbacks;
 
     const DEVICE_NAME: &'static [u8] = b"Butterboard";
-    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]] = ButterboardLayers::LAYER_LOOKUP;
+    const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]] = Layers::LAYER_LOOKUP;
 
     fn new(flash_token: FlashToken) -> Self {
         // Get the flash settings and extract the custom data stored for this board.
@@ -132,10 +133,9 @@ impl Keyboard for Butterboard {
         Self { persistent_data }
     }
 
-    async fn callback(&mut self, callback: u32) {
+    async fn callback(&mut self, callback: Callbacks) {
         match callback {
-            0 => self.next_animation().await,
-            _ => defmt::warn!("not implemented"),
+            Callbacks::NextAnimation => self.next_animation().await,
         }
     }
 

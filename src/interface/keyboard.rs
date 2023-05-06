@@ -73,6 +73,8 @@ where
     /// Persistent data that is stored in the flash.
     type BoardFlash: Clone + defmt::Format = ();
 
+    type Callbacks: Clone = !;
+
     /// Instantiate a new instance of the keyboard. This is only run once on boot.
     fn new(flash_token: FlashToken) -> Self;
 
@@ -86,8 +88,8 @@ where
     async fn post_initialize(&mut self) {}
 
     /// Key press callback handler.
-    async fn callback(&mut self, id: u32) {
-        let _ = id;
+    async fn callback(&mut self, callback: Self::Callbacks) {
+        let _ = callback;
         defmt::warn!("Callback handler not defined");
     }
 }

@@ -1,4 +1,5 @@
 use crate::flash::BondSlot;
+use crate::interface::Keyboard;
 use crate::led::Animation;
 
 pub struct Layer(pub usize);
@@ -6,7 +7,7 @@ pub struct Layer(pub usize);
 pub enum SpecialAction {
     RemoveBond { bond_slot: BondSlot },
     SwitchAnimation { animation: Animation },
-    Callback(u32),
+    Callback(<crate::Used as Keyboard>::Callbacks),
 }
 
 pub enum Mapping {

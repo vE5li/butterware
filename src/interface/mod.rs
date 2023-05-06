@@ -1,6 +1,6 @@
 mod keyboard;
 #[macro_use]
-mod layers;
+mod macros;
 
 pub use self::keyboard::{Keyboard, KeyboardExtension, Scannable};
 

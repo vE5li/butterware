@@ -130,8 +130,12 @@ where
                                 crate::keys::SpecialAction::SwitchAnimation { animation } => {
                                     FlashTransaction::new().switch_animation(*animation).apply().await;
                                 }
-                                crate::keys::SpecialAction::Callback(id) => {
-                                    keyboard.callback(*id).await;
+                                crate::keys::SpecialAction::Callback(callback) => {
+                                    // FIX: Fix this. It's actually completely safe but Rust can't
+                                    // know that.
+                                    let callback =
+                                        unsafe { core::mem::transmute::<&<crate::Used as Keyboard>::Callbacks, &K::Callbacks>(callback) };
+                                    keyboard.callback(callback.clone()).await;
                                 }
                             }
 
