@@ -28,7 +28,7 @@ There is also a helper command to build for both sides at the same time
 # Flashing
 
 Flashing is very easy when using the [Adafruit nRF52 Bootloader](https://github.com/adafruit/Adafruit_nRF52_Bootloader). Simply connect the board to your device and enter flashing mode by connecting the reset and ground pins twice.
-In flash mode the board will then present itself as a storage device and you can simply copy the binary at `target/thumbv7em-none-eabihf/butterware-<left/right>.uf2` onto the device to flash.
+In flash mode the board will then present itself as a storage device and you can simply copy the binary at `images/butterware-<left/right>.uf2` onto the device to flash.
 
 
 If you are using Linux, you can also use `make flash`. Assuming your board is connected as `/dev/sda`, you may run
