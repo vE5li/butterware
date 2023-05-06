@@ -29,11 +29,11 @@ pub async fn do_slave(
 
     let mut keyboard_state = SlaveState::new();
 
-    defmt::debug!("stating slave");
+    defmt::debug!("Stating slave");
 
     let master_connection = defmt::unwrap!(central::connect(softdevice, &config).await);
 
-    defmt::info!("connected to other half");
+    defmt::info!("Connected to other half");
 
     #[cfg(feature = "lighting")]
     let animation = get_settings(flash_token).animation;

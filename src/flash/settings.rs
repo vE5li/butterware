@@ -13,7 +13,7 @@ use crate::led::led_sender;
 
 // Struct that perfectly alignes with page boundaries of the flash. Placing this
 // into the flash gives us a very simple and clean way to get the address and
-// size of the page we use for storing the settings.
+// size of the page(s) we use for storing the settings.
 #[repr(C)]
 struct ReservedFlash {
     _align: Align<{ nvmc::PAGE_SIZE }>,
@@ -36,7 +36,7 @@ static mut SETTINGS_FLASH: MaybeUninit<AlignedFlashSettings> = MaybeUninit::unin
 // Assert that the settings are not too big for the flash.
 const _: () = assert!(
     core::mem::size_of::<AlignedFlashSettings>() < core::mem::size_of::<ReservedFlash>(),
-    "Settings are too big to be stored in the reserved flash. Try making it smaller or reserve more space by adjusting SETTINGS_PAGES."
+    "Settings are too big to be stored in the reserved flash. Try making it smaller or reserve more space by adjusting SETTINGS_PAGES"
 );
 
 // The FlashToken can only be constructed by calling initialize_flash. It is
@@ -144,7 +144,7 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
             }
             FlashOperation::Apply => {
                 if apply_flags.contains(ApplyFlags::ERASE) {
-                    defmt::trace!("erasing page");
+                    defmt::trace!("Erasing {} pages", <crate::Used as Keyboard>::SETTINGS_PAGES);
                     defmt::unwrap!(flash.erase(token.address, token.address + nvmc::PAGE_SIZE as u32).await);
                 }
 
@@ -153,7 +153,7 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
                         core::mem::transmute::<&AlignedFlashSettings, &[u8; core::mem::size_of::<AlignedFlashSettings>()]>(aligned)
                     };
 
-                    defmt::trace!("writing with value: {:#?}", bytes);
+                    defmt::trace!("Writing with value: {:#?}", bytes);
                     defmt::unwrap!(flash.write(token.address, bytes).await);
                 }
 

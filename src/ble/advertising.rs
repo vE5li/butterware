@@ -22,7 +22,7 @@ impl AdvertisingData {
         self.data[self.used_bytes + 1] = element_type;
 
         if self.used_bytes + element_data.len() > MAXIMUM_ADVERTISE_LENGTH {
-            panic!("Advertising data is too big. Try shortening the keyboard name.");
+            panic!("Advertising data is too big. Try shortening the keyboard name");
         }
 
         let mut offset = 0;

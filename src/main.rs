@@ -46,10 +46,10 @@ use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::interface::Keyboard;
 
 #[cfg(all(feature = "left", feature = "right"))]
-compile_error!("Only one side can be built for at a time. Try disabling either the left or right feature.");
+compile_error!("Only one side can be built for at a time. Try disabling either the left or right feature");
 
 #[cfg(not(any(feature = "left", feature = "right")))]
-compile_error!("No side to compile for was selected. Try enabling the left or right feature.");
+compile_error!("No side to compile for was selected. Try enabling the left or right feature");
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) {
@@ -165,7 +165,7 @@ async fn main(spawner: Spawner) -> ! {
             false => led_sender.send(Used::SLAVE_ANIMATION).await,
         }
 
-        defmt::debug!("is master: {}", is_master);
+        defmt::debug!("Is master: {}", is_master);
 
         let _ = match is_master {
             true => {
@@ -205,7 +205,7 @@ async fn main(spawner: Spawner) -> ! {
             }
         };
 
-        defmt::error!("halves disconnected");
+        defmt::error!("Halves disconnected");
 
         #[cfg(all(feature = "lighting", not(feature = "auto-reset")))]
         led_sender.send(Animation::Disconnected).await;

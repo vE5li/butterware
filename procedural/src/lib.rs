@@ -23,7 +23,7 @@ pub fn alias_keyboard(input: TokenStream) -> TokenStream {
 
     colored::control::set_override(true);
 
-    let name = proc_macro::tracked_env::var("KEYBOARD").expect("No board specified. Try setting the KEYBOARD environment variable.");
+    let name = proc_macro::tracked_env::var("KEYBOARD").expect("No board specified. Try setting the KEYBOARD environment variable");
 
     #[cfg(feature = "left")]
     let side = "Left";
@@ -102,7 +102,7 @@ fn source_file_names<P: AsRef<Path>>(dir: P) -> Result<Vec<String>, Error> {
 pub fn import_keyboards(input: TokenStream) -> TokenStream {
     let directory = syn::parse_macro_input!(input as syn::LitStr);
     let cargo_conform_directory = format!("src/{}", directory.value());
-    let entries = source_file_names(&cargo_conform_directory).expect("Failed to get keyboards.");
+    let entries = source_file_names(&cargo_conform_directory).expect("Failed to get keyboards");
 
     let (path, module) = entries
         .iter()

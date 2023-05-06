@@ -25,7 +25,7 @@ pub async fn do_master(
     #[cfg(feature = "lighting")] flash_token: FlashToken,
     #[cfg(feature = "lighting")] led_sender: &LedSender,
 ) -> Result<Infallible, HalfDisconnected> {
-    defmt::debug!("stating master");
+    defmt::debug!("Stating master");
 
     // Connect to the other half
     let config = peripheral::Config::default();
@@ -36,7 +36,7 @@ pub async fn do_master(
     let flash_client: FlashServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
     let flash_operations = crate::flash::slave_flash_receiver();
 
-    defmt::info!("connected to other half");
+    defmt::info!("Connected to other half");
 
     #[cfg(feature = "lighting")]
     let animation = get_settings(flash_token).animation;
@@ -82,7 +82,7 @@ pub async fn do_master(
             }
         };
 
-        defmt::warn!("connected");
+        defmt::warn!("Connected to host");
 
         // Run until the host disconnects.
         master_connection(

@@ -30,9 +30,9 @@ impl Mapping {
     pub const fn keycode(&self) -> u8 {
         match self {
             Key(value) => *value,
-            Mapping::Layer(..) => panic!("mapping layer cannot be used as a regular key"),
+            Mapping::Layer(..) => panic!("Mapping layer cannot be used as a regular key"),
             Mapping::TapLayer(_, value) => *value,
-            Mapping::Special(..) => panic!("special key cannot be used as a regular key"),
+            Mapping::Special(..) => panic!("Special key cannot be used as a regular key"),
         }
     }
 }
