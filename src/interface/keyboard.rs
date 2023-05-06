@@ -35,6 +35,10 @@ where
     // milliseconds.
     const TAP_TIME: u64 = 5000;
 
+    // Number of pages in the flash to statically allocate for storing persistent
+    // data. Unless explicitely stated, this does not need to be increased.
+    const SETTINGS_PAGES: usize = 1;
+
     // Maximum number of bonds that can be stored permanently.
     const MAXIMUM_BONDS: usize = 10;
 
