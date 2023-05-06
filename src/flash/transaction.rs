@@ -8,7 +8,7 @@ use crate::interface::Keyboard;
 use crate::led::Animation;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, defmt::Format)]
+#[derive(Clone, defmt::Format)]
 pub enum FlashOperation {
     StorePeer {
         slot: BondSlot,
@@ -52,7 +52,7 @@ impl FlashTransaction<0> {
 impl<const N: usize> FlashTransaction<N> {
     fn queue_inner(self, operation: FlashOperation) -> FlashTransaction<{ N + 1 }> {
         let mut operations: [FlashOperation; N + 1] = unsafe { MaybeUninit::zeroed().assume_init() };
-        operations[0..N].copy_from_slice(&self.operations);
+        operations[0..N].clone_from_slice(&self.operations);
         operations[N] = operation;
         FlashTransaction { operations }
     }
@@ -85,14 +85,14 @@ impl<const N: usize> FlashTransaction<N> {
 
     pub async fn apply(self) {
         for operation in self.operations.into_iter().chain(core::iter::once(FlashOperation::Apply)) {
-            FLASH_OPERATIONS.sender().send(operation).await;
+            FLASH_OPERATIONS.sender().send(operation.clone()).await;
             SLAVE_FLASH_OPERATIONS.sender().send(operation).await;
         }
     }
 
     pub fn try_apply(self) {
         for operation in self.operations.into_iter().chain(core::iter::once(FlashOperation::Apply)) {
-            if FLASH_OPERATIONS.sender().try_send(operation).is_err() {
+            if FLASH_OPERATIONS.sender().try_send(operation.clone()).is_err() {
                 defmt::error!("Failed to send flash operation to flash task");
             }
 

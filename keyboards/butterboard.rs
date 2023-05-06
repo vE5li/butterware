@@ -8,8 +8,13 @@ use crate::interface::{Keyboard, Scannable};
 use crate::keys::*;
 use crate::led::{Animation, Led, Speed};
 
-pub struct Butterboard {
+#[derive(Clone, Copy, defmt::Format)]
+pub struct PersistentData {
     current_animation: usize,
+}
+
+pub struct Butterboard {
+    persistent_data: PersistentData,
 }
 
 register_layers!(Butterboard, ButterboardLayers, [BASE, SPECIAL, TEST]);
@@ -94,15 +99,15 @@ impl Butterboard {
 
     async fn next_animation(&mut self) {
         // Go to next animation.
-        self.current_animation = (self.current_animation + 1) % Self::ANIMATIONS.len();
+        self.persistent_data.current_animation = (self.persistent_data.current_animation + 1) % Self::ANIMATIONS.len();
 
-        let animation = Self::ANIMATIONS[self.current_animation];
+        let animation = Self::ANIMATIONS[self.persistent_data.current_animation];
 
         FlashTransaction::new()
             // Update the lighting on both sides and in the firmware flash.
             .switch_animation(animation)
             // Save custom data to our board flash.
-            .store_board_flash(self.current_animation)
+            .store_board_flash(self.persistent_data)
             // Apply operations
             .apply()
             .await;
@@ -115,16 +120,16 @@ impl Scannable for Butterboard {
 }
 
 impl Keyboard for Butterboard {
-    type BoardFlash = usize;
+    type BoardFlash = PersistentData;
 
     const DEVICE_NAME: &'static [u8] = b"Butterboard";
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::COLUMNS * Self::ROWS * 2]] = ButterboardLayers::LAYER_LOOKUP;
 
     fn new(flash_token: FlashToken) -> Self {
         // Get the flash settings and extract the custom data stored for this board.
-        let current_animation = get_settings(flash_token).board_flash;
+        let persistent_data = get_settings(flash_token).board_flash;
 
-        Self { current_animation }
+        Self { persistent_data }
     }
 
     async fn callback(&mut self, callback: u32) {

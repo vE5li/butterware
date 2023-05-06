@@ -23,7 +23,7 @@ struct ReservedFlash {
 // The flash can only write full words, so we need to pad the settings with up
 // to 3 bytes.
 #[repr(C)]
-#[derive(Clone, Copy, defmt::Format)]
+#[derive(Clone, defmt::Format)]
 struct AlignedFlashSettings {
     pub settings: FlashSettings,
     pub padding: [u8; 3 - ((core::mem::size_of::<FlashSettings>() - 1) % 4)],
@@ -57,7 +57,7 @@ pub async fn initalize_flash(flash: &mut Flash) -> FlashToken {
 
     // Save to static variable so that other tasks can read from it.
     let settings = unsafe { core::mem::transmute::<&[u8; core::mem::size_of::<AlignedFlashSettings>()], &AlignedFlashSettings>(&buffer) };
-    unsafe { SETTINGS_FLASH.write(*settings) };
+    unsafe { SETTINGS_FLASH.write(settings.clone()) };
 
     // Return a FlashToken that can be used to access the settings.
     FlashToken { address }
