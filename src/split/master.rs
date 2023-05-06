@@ -9,7 +9,7 @@ use nrf_softdevice::Softdevice;
 use super::HalfDisconnected;
 use crate::ble::{Bonder, FlashServiceClient, KeyStateServer, KeyStateServerEvent, KeyStateServiceEvent, Server};
 use crate::flash::{get_settings, FlashToken, SlaveFlashReceiver};
-use crate::hardware::{MasterState, ScanPins, TestBit};
+use crate::hardware::{MasterState, ScanPins, BitOperations};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::led::LedSender;
 

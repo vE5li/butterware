@@ -117,8 +117,7 @@ pub struct ActiveLayer {
     pub tap_timer: Option<u64>,
 }
 
-// TODO: rename to BitOperations or similar
-pub trait TestBit {
+pub trait BitOperations {
     fn test_bit(self, offset: usize) -> bool;
 
     fn clear_bit(&mut self, offset: usize);
@@ -126,7 +125,7 @@ pub trait TestBit {
     fn set_bit(&mut self, offset: usize);
 }
 
-impl TestBit for u64 {
+impl BitOperations for u64 {
     fn test_bit(self, offset: usize) -> bool {
         (self >> offset) & 0b1 != 0
     }

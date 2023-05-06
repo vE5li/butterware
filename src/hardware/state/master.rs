@@ -2,7 +2,7 @@ use embassy_time::driver::now;
 
 use super::KeyState;
 use crate::flash::FlashTransaction;
-use crate::hardware::{ActiveLayer, DebouncedKey, TestBit};
+use crate::hardware::{ActiveLayer, DebouncedKey, BitOperations};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::Mapping;
 
