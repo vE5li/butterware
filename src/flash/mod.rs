@@ -66,7 +66,7 @@ pub struct Bond {
 
 #[repr(C)]
 #[derive(Clone, defmt::Format)]
-pub struct FlashSettings {
+pub struct Settings {
     pub bonds: [Bond; <crate::Used as Keyboard>::MAXIMUM_BONDS],
     #[cfg(feature = "lighting")]
     pub animation: Animation,

@@ -1,4 +1,6 @@
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::interrupt;
 use embassy_nrf::peripherals::{self, SPI2, SPI3, TWISPI1};
 use embassy_nrf::spim::{self, Config, Spim};
 use embassy_nrf::spis::MODE_1;
@@ -15,21 +17,18 @@ pub use self::state::{do_scan, KeyState, MasterState, SlaveState};
 
 pub struct SpiConfig {
     pub interface: SPI3,
-    pub interrupt: embassy_nrf::interrupt::SPIM3,
     pub clock_pin: AnyPin,
     pub mosi_pin: AnyPin,
 }
 
 pub struct Spi2Config {
     pub interface: SPI2,
-    pub interrupt: embassy_nrf::interrupt::SPIM2_SPIS2_SPI2,
     pub clock_pin: AnyPin,
     pub mosi_pin: AnyPin,
 }
 
 pub struct Spi1Config {
     pub interface: TWISPI1,
-    pub interrupt: embassy_nrf::interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
     pub clock_pin: AnyPin,
     pub mosi_pin: AnyPin,
 }
@@ -51,6 +50,8 @@ embassy_nrf::bind_interrupts!(struct Irqs {
 
 impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
     pub fn to_pins(self) -> (ScanPins<'static, C, R>, Spis<'static>) {
+        use embassy_nrf::interrupt::InterruptExt;
+
         let columns = self
             .columns
             .into_iter()
@@ -66,6 +67,10 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
             .unwrap_infelliable();
 
         let power_pin = self.power_pin.map(|pin| Output::new(pin, Level::High, OutputDrive::Standard));
+
+        unsafe { interrupt::SPIM3::steal() }.set_priority(interrupt::Priority::P2);
+        unsafe { interrupt::SPIM2_SPIS2_SPI2::steal() }.set_priority(interrupt::Priority::P2);
+        unsafe { interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1::steal() }.set_priority(interrupt::Priority::P2);
 
         // FIX: fix colliding names
         let mut config_foo = Config::default();

@@ -22,6 +22,9 @@ pub enum FlashOperation {
     #[cfg(feature = "lighting")]
     SwitchAnimation(Animation),
     StoreBoardFlash(<crate::Used as Keyboard>::BoardFlash),
+    // TODO: remove unused ?
+    #[allow(unused)]
+    Reset,
     Apply,
 }
 
@@ -81,6 +84,13 @@ impl<const N: usize> FlashTransaction<N> {
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
     pub fn store_board_flash(self, board_flash: <crate::Used as Keyboard>::BoardFlash) -> FlashTransaction<{ N + 1 }> {
         self.queue_inner(FlashOperation::StoreBoardFlash(board_flash))
+    }
+
+    // TODO: remove unused ?
+    #[allow(unused)]
+    #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
+    pub fn reset(self) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(FlashOperation::Reset)
     }
 
     pub async fn apply(self) {

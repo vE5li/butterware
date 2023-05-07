@@ -1,6 +1,5 @@
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_nrf::gpio::Pin;
-use embassy_nrf::{interrupt, Peripherals};
+use embassy_nrf::Peripherals;
 
 use crate::flash::{get_settings, FlashToken, FlashTransaction};
 use crate::hardware::{ScanPinConfig, SpiConfig};
@@ -100,7 +99,6 @@ impl Butterboard {
     async fn next_animation(&mut self) {
         // Go to next animation.
         self.persistent_data.current_animation = (self.persistent_data.current_animation + 1) % Self::ANIMATIONS.len();
-
         let animation = Self::ANIMATIONS[self.persistent_data.current_animation];
 
         FlashTransaction::new()
@@ -140,23 +138,6 @@ impl Keyboard for Butterboard {
     }
 
     async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
-        use embassy_nrf::interrupt::InterruptExt;
-
-        // Enable power on the 3V rail.
-        let power_pin = peripherals.P0_13.degrade();
-
-        // Set up SPI
-        let interrupt_3 = unsafe { interrupt::SPIM3::steal() };
-        interrupt_3.set_priority(interrupt::Priority::P2);
-
-        // Set up SPI
-        let interrupt_2 = unsafe { interrupt::SPIM2_SPIS2_SPI2::steal() };
-        interrupt_2.set_priority(interrupt::Priority::P2);
-
-        // Set up SPI
-        let interrupt_1 = unsafe { interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1::steal() };
-        interrupt_1.set_priority(interrupt::Priority::P2);
-
         ScanPinConfig {
             columns: [
                 peripherals.P0_31.degrade(),
@@ -171,22 +152,19 @@ impl Keyboard for Butterboard {
                 peripherals.P1_00.degrade(),
                 peripherals.P0_11.degrade(),
             ],
-            power_pin: Some(power_pin),
+            power_pin: Some(peripherals.P0_13.degrade()),
             spi_config: Some(SpiConfig {
                 interface: peripherals.SPI3,
-                interrupt: interrupt_3,
                 clock_pin: peripherals.P0_08.degrade(),
                 mosi_pin: peripherals.P0_06.degrade(),
             }),
             spi_2_config: Some(crate::hardware::Spi2Config {
                 interface: peripherals.SPI2,
-                interrupt: interrupt_2,
                 clock_pin: peripherals.P0_09.degrade(),
                 mosi_pin: peripherals.P0_17.degrade(),
             }),
             spi_1_config: Some(crate::hardware::Spi1Config {
                 interface: peripherals.TWISPI1,
-                interrupt: interrupt_1,
                 clock_pin: peripherals.P0_10.degrade(),
                 mosi_pin: peripherals.P0_20.degrade(),
             }),
