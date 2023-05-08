@@ -9,6 +9,10 @@ Butterware is a firmware for split wireless keyboards, designed as an easy-to-us
 Butterware is written entirely in [Rust](https://www.rust-lang.org/) and is based on [Embassy](https://github.com/embassy-rs/embassy), which is designed for creating embedded applications in Rust. Both Embassy and Butterware make heavy use of Rust's async/await, enabling it to run quickly and efficiently.
 
 # Features
+- **Layers**: A layer is a set of key bindings that can be enabled/disabled by pressing a special key.
+
+- **Tap hold keys**: Keys can be bound to trigger different actions depending on if they were pressed for a short time or held.
+
 - **RGB lighting**: Butterware supports LEDs that implement the ws2812b protocol.
 
 - **Dynamic master selection**: On boot, the two halves of the keyboard will dynamically determine which side connects to your device. This feature helps prevent one side's batteries from draining faster than the other.
@@ -35,4 +39,4 @@ If you are using Linux, you can also use `make flash`. Assuming your board is co
 
 `make flash KEYBOARD=butterboard SIDE=left DEVICE=/dev/sda`
 
-We recommend flashing both sides to avoid the persistent storage going out of sync, which might cause weird behavior when using the keyboard.
+It is recommended to flash both sides to avoid the persistent storage going out of sync, which might cause weird behavior when using the keyboard.
