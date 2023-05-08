@@ -4,10 +4,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-Butterware is a firmware for split wireless keyboards. This project is supposed to be an alternative to [ZMK](https://github.com/zmkfirmware/zmk), which is powerful but also difficult to work with. The focus of Butterware is on providing a comprehensive feature set, while keeping the firmware easy to understand, configure and extend.
+Butterware is a firmware for split wireless keyboards, designed as an easy-to-use alternative to [ZMK](https://github.com/zmkfirmware/zmk). Unlike ZMK, which can be complex and challenging to work with, Butterware is focused on providing a comprehensive set of features that are simple to understand, configure, and extend.
 
-
-Butterware is written entirely in [Rust](https://www.rust-lang.org/). It is built on top of [Embassy](https://github.com/embassy-rs/embassy), which is a framework for creating embedded applications in Rust. Butterware makes heavy use of Rust's async/await, which allows it to run quickly and efficiently.
+Butterware is written entirely in [Rust](https://www.rust-lang.org/) and is based on [Embassy](https://github.com/embassy-rs/embassy), which is designed for creating embedded applications in Rust. Both Embassy and Butterware make heavy use of Rust's async/await, enabling it to run quickly and efficiently.
 
 # Features
 - **RGB lighting**: Butterware supports LEDs that implement the ws2812b protocol.
