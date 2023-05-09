@@ -1,15 +1,19 @@
 use embassy_nrf::gpio::Pin;
+use embassy_nrf::peripherals::{SPI2, SPI3, TWISPI1};
 use embassy_nrf::Peripherals;
 
 use crate::flash::{get_settings, FlashToken, FlashTransaction};
-use crate::hardware::{ScanPinConfig, SpiConfig};
+use crate::hardware::ScanPinConfig;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::*;
-use crate::led::{Animation, Led, Speed};
+use crate::led::{set_animation, Animation, Grb, Led, Rgb, Speed, Ws2812bDriver};
+use crate::Side;
 
 #[derive(Clone, Copy, defmt::Format)]
 pub struct PersistentData {
-    current_animation: usize,
+    keys_animation: usize,
+    wings_animation: usize,
+    status_animation: usize,
 }
 
 pub struct Butterboard {
@@ -18,7 +22,20 @@ pub struct Butterboard {
 
 register_layers!(Butterboard, Layers, [BASE, SPECIAL, TEST]);
 
-register_callbacks!(Butterboard, Callbacks, [NextAnimation]);
+register_callbacks!(Butterboard, Callbacks, [
+    NextKeysAnimation,
+    NextWingsAnimation,
+    NextStatusAnimation,
+    SyncAnimations,
+]);
+
+register_leds!(Butterboard, Leds, [
+    Keys: Ws2812bDriver<19, Rgb, SPI3>,
+    Wings: Ws2812bDriver<57, Grb, TWISPI1>,
+    Status: Ws2812bDriver<17, Grb, SPI2>,
+]);
+
+//register_events!(Butterboard, Events, [SyncAnimations]);
 
 #[rustfmt::skip]
 macro_rules! new_layer {
@@ -90,23 +107,53 @@ impl Butterboard {
     const SPE_SPC: Mapping = Mapping::tap_layer(Layers::SPECIAL, SPACE);
     #[rustfmt::skip]
     const TEST: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
-        Q, W, F, P, Callbacks::NextAnimation.mapping(), J, L, U, Y, Y,
+        Q, W, Callbacks::NextKeysAnimation.mapping(), Callbacks::NextWingsAnimation.mapping(), Callbacks::NextStatusAnimation.mapping(), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(Layers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
     ];
 
-    async fn next_animation(&mut self) {
+    async fn next_keys_animation(&mut self) {
         // Go to next animation.
-        self.persistent_data.current_animation = (self.persistent_data.current_animation + 1) % Self::ANIMATIONS.len();
-        let animation = Self::ANIMATIONS[self.persistent_data.current_animation];
+        self.persistent_data.keys_animation = (self.persistent_data.keys_animation + 1) % Self::ANIMATIONS.len();
+        let animation = Self::ANIMATIONS[self.persistent_data.keys_animation];
 
+        // Set the animation for both sides.
+        set_animation::<{ Side::Both }>(Leds::Keys, animation).await;
+
+        // Store persistent data on both sides.
         FlashTransaction::new()
-            // Update the lighting on both sides and in the firmware flash.
-            .switch_animation(animation)
-            // Save custom data to our board flash.
-            .store_board_flash(self.persistent_data)
-            // Apply operations
+            .store_board_flash::<{ Side::Both }>(self.persistent_data)
+            .apply()
+            .await;
+    }
+
+    async fn next_wings_animation(&mut self) {
+        // Go to next animation.
+        self.persistent_data.wings_animation = (self.persistent_data.wings_animation + 1) % Self::ANIMATIONS.len();
+        let animation = Self::ANIMATIONS[self.persistent_data.wings_animation];
+
+        // Set the animation for both sides.
+        set_animation::<{ Side::Both }>(Leds::Wings, animation).await;
+
+        // Store persistent data on both sides.
+        FlashTransaction::new()
+            .store_board_flash::<{ Side::Both }>(self.persistent_data)
+            .apply()
+            .await;
+    }
+
+    async fn next_status_animation(&mut self) {
+        // Go to next animation.
+        self.persistent_data.status_animation = (self.persistent_data.status_animation + 1) % Self::ANIMATIONS.len();
+        let animation = Self::ANIMATIONS[self.persistent_data.status_animation];
+
+        // Set the animation for both sides.
+        set_animation::<{ Side::Both }>(Leds::Status, animation).await;
+
+        // Store persistent data on both sides.
+        FlashTransaction::new()
+            .store_board_flash::<{ Side::Both }>(self.persistent_data)
             .apply()
             .await;
     }
@@ -120,9 +167,12 @@ impl Scannable for Butterboard {
 impl Keyboard for Butterboard {
     type BoardFlash = PersistentData;
     type Callbacks = Callbacks;
+    type Leds = Leds;
+    //type Events = Events;
 
     const DEVICE_NAME: &'static [u8] = b"Butterboard";
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::KEYS_TOTAL]] = Layers::LAYER_LOOKUP;
+    const STATUS_LEDS: Leds = Leds::Status;
 
     fn new(flash_token: FlashToken) -> Self {
         // Get the flash settings and extract the custom data stored for this board.
@@ -133,9 +183,22 @@ impl Keyboard for Butterboard {
 
     async fn callback(&mut self, callback: Callbacks) {
         match callback {
-            Callbacks::NextAnimation => self.next_animation().await,
+            Callbacks::NextKeysAnimation => self.next_keys_animation().await,
+            Callbacks::NextWingsAnimation => self.next_wings_animation().await,
+            Callbacks::NextStatusAnimation => self.next_status_animation().await,
+            Callbacks::SyncAnimations =>
+                /* trigger_event::<Side::Both>(Event::SyncAnimations) */
+                {}
         }
     }
+
+    /*async fn event(&mut self, event: Event) {
+        match event {
+            Event::SyncAnimations => {
+                // Sync animations
+            }
+        }
+    }*/
 
     async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
         ScanPinConfig {
@@ -152,22 +215,23 @@ impl Keyboard for Butterboard {
                 peripherals.P1_00.degrade(),
                 peripherals.P0_11.degrade(),
             ],
+            leds: initialize_leds! {
+                Keys: Ws2812bDriver::new(peripherals.P0_06.degrade(), peripherals.P0_08.degrade(), peripherals.SPI3),
+                Wings: Ws2812bDriver::new(peripherals.P0_17.degrade(), peripherals.P0_09.degrade(), peripherals.TWISPI1),
+                Status: Ws2812bDriver::new(peripherals.P0_20.degrade(), peripherals.P0_10.degrade(), peripherals.SPI2),
+            },
             power_pin: Some(peripherals.P0_13.degrade()),
-            spi_config: Some(SpiConfig {
-                interface: peripherals.SPI3,
-                clock_pin: peripherals.P0_08.degrade(),
-                mosi_pin: peripherals.P0_06.degrade(),
-            }),
-            spi_2_config: Some(crate::hardware::Spi2Config {
-                interface: peripherals.SPI2,
-                clock_pin: peripherals.P0_09.degrade(),
-                mosi_pin: peripherals.P0_17.degrade(),
-            }),
-            spi_1_config: Some(crate::hardware::Spi1Config {
-                interface: peripherals.TWISPI1,
-                clock_pin: peripherals.P0_10.degrade(),
-                mosi_pin: peripherals.P0_20.degrade(),
-            }),
         }
+    }
+
+    async fn post_sides_connected(&mut self, _is_master: bool) {
+        let keys_animation = Self::ANIMATIONS[self.persistent_data.keys_animation];
+        let wings_animation = Self::ANIMATIONS[self.persistent_data.wings_animation];
+        let status_animation = Self::ANIMATIONS[self.persistent_data.status_animation];
+
+        // Set animations only for each side individually.
+        set_animation::<{ Side::This }>(Leds::Keys, keys_animation).await;
+        set_animation::<{ Side::This }>(Leds::Wings, wings_animation).await;
+        set_animation::<{ Side::This }>(Leds::Status, status_animation).await;
     }
 }

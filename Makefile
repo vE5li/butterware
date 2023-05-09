@@ -32,4 +32,4 @@ both:
 	@make SIDE=right
 
 flash: compile binary bootloader
-	sudo mount ${DEVICE} /mnt && sudo cp target/thumbv7em-none-eabihf/debug/butterware-${SIDE}.uf2 /mnt/ && sudo umount /mnt
+	sudo mount ${DEVICE} /mnt && sudo cp ${IMAGE_DIRECTORY}/butterware-${SIDE}.uf2 /mnt/ && sudo umount /mnt

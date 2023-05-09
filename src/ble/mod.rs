@@ -171,11 +171,6 @@ pub struct KeyStateServiceClient {
     pub key_state: u64,
 }
 
-#[nrf_softdevice::gatt_server]
-pub struct KeyStateServer {
-    pub key_state_service: KeyStateService,
-}
-
 #[nrf_softdevice::gatt_service(uuid = "fe027f36-e7e0-11ed-a05b-0242ac120003")]
 pub struct FlashService {
     #[characteristic(uuid = "0b257fe2-e7e1-11ed-a05b-0242ac120003", write)]
@@ -188,7 +183,24 @@ pub struct FlashServiceClient {
     pub flash_operation: crate::flash::FlashOperation,
 }
 
+#[cfg(feature = "lighting")]
+#[nrf_softdevice::gatt_service(uuid = "01c5abb0-ee81-11ed-a05b-0242ac120003")]
+pub struct LightingService {
+    #[characteristic(uuid = "0bad19c4-ee81-11ed-a05b-0242ac120003", write)]
+    pub lighting_operation: crate::led::LightingOperation,
+}
+
+#[cfg(feature = "lighting")]
+#[nrf_softdevice::gatt_client(uuid = "01c5abb0-ee81-11ed-a05b-0242ac120003")]
+pub struct LightingServiceClient {
+    #[characteristic(uuid = "0bad19c4-ee81-11ed-a05b-0242ac120003", write)]
+    pub lighting_operation: crate::led::LightingOperation,
+}
+
 #[nrf_softdevice::gatt_server]
-pub struct FlashServer {
+pub struct CommunicationServer {
+    pub key_state_service: KeyStateService,
     pub flash_service: FlashService,
+    #[cfg(feature = "lighting")]
+    pub lighting_service: LightingService,
 }

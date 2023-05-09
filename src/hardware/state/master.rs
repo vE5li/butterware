@@ -1,10 +1,12 @@
 use embassy_time::driver::now;
 
 use super::KeyState;
+use crate::Side;
 use crate::flash::FlashTransaction;
 use crate::hardware::{ActiveLayer, DebouncedKey, BitOperations};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::Mapping;
+use crate::led::set_animation;
 
 // TODO: make fileds private?
 pub struct MasterState {
@@ -110,10 +112,12 @@ impl MasterState {
                         if key_state.test_bit(key_index) {
                             match special_action {
                                 crate::keys::SpecialAction::RemoveBond { bond_slot } => {
-                                    FlashTransaction::new().remove_bond(*bond_slot).apply().await;
+                                    // FIX: Should the size here be manually configurable?
+                                    FlashTransaction::new().remove_bond::<{ Side::Both }>(*bond_slot).apply().await;
                                 }
-                                crate::keys::SpecialAction::SwitchAnimation { animation } => {
-                                    FlashTransaction::new().switch_animation(*animation).apply().await;
+                                crate::keys::SpecialAction::SwitchAnimation { index, animation } => {
+                                    // FIX: Should the size here be manually configurable?
+                                    set_animation::<{ Side::Both }>(index.clone(), animation.clone()).await;
                                 }
                                 crate::keys::SpecialAction::Callback(callback) => {
                                     keyboard.callback(callback.clone()).await;

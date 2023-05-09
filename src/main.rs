@@ -8,6 +8,7 @@
 #![feature(async_fn_in_trait)]
 #![feature(associated_type_defaults)]
 #![feature(never_type)]
+#![feature(adt_const_params)]
 #![allow(incomplete_features)]
 
 use embassy_executor::Spawner;
@@ -22,7 +23,6 @@ use {defmt_rtt as _, panic_probe as _};
 
 mod ble;
 mod flash;
-mod future;
 mod hardware;
 #[allow(unused)]
 mod keys;
@@ -44,12 +44,45 @@ use ble::Server;
 
 use crate::ble::{AdvertisingData, Bonder, KEYBOARD_ICON};
 use crate::interface::Keyboard;
+#[cfg(feature = "lighting")]
+use crate::led::set_animation;
 
 #[cfg(all(feature = "left", feature = "right"))]
 compile_error!("Only one side can be built for at a time. Try disabling either the left or right feature");
 
 #[cfg(not(any(feature = "left", feature = "right")))]
 compile_error!("No side to compile for was selected. Try enabling the left or right feature");
+
+#[derive(Clone, Copy, Debug, defmt::Format, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Side {
+    This,
+    Other,
+    Left,
+    Right,
+    Both,
+}
+
+impl Side {
+    const fn includes_this(&self) -> bool {
+        match self {
+            Side::This => true,
+            Side::Other => false,
+            Side::Left => cfg!(feature = "left"),
+            Side::Right => cfg!(feature = "right"),
+            Side::Both => true,
+        }
+    }
+
+    const fn includes_other(&self) -> bool {
+        match self {
+            Side::This => false,
+            Side::Other => true,
+            Side::Left => !cfg!(feature = "left"),
+            Side::Right => !cfg!(feature = "right"),
+            Side::Both => true,
+        }
+    }
+}
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) {
@@ -105,15 +138,14 @@ async fn main(spawner: Spawner) -> ! {
 
     // Register BLE services.
     let server = defmt::unwrap!(Server::new(softdevice));
-    let key_state_server = defmt::unwrap!(ble::KeyStateServer::new(softdevice));
-    let flash_server = defmt::unwrap!(ble::FlashServer::new(softdevice));
+    let communication_server = defmt::unwrap!(ble::CommunicationServer::new(softdevice));
     #[cfg(feature = "left")]
     let master_server = defmt::unwrap!(ble::MasterServer::new(softdevice));
 
     // Instanciate the keyboard.
     let mut keyboard = Used::new(flash_token);
     keyboard.pre_initialize().await;
-    let (mut pins, spis) = keyboard.initialize_peripherals(peripherals).await.to_pins();
+    let (mut pins, leds) = keyboard.initialize_peripherals(peripherals).await.to_pins();
     keyboard.post_initialize().await;
 
     // Softdevice task
@@ -124,7 +156,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Led task
     #[cfg(feature = "lighting")]
-    defmt::unwrap!(spawner.spawn(led::led_task(spis)));
+    defmt::unwrap!(spawner.spawn(led::lighting_task(leds)));
 
     // Bluetooth setup
     const SCAN_DATA: &[u8] = &[0x03, 0x03, 0x09, 0x18];
@@ -145,10 +177,7 @@ async fn main(spawner: Spawner) -> ! {
         set_address(softdevice, &Used::RIGHT_ADDRESS);
 
         #[cfg(feature = "lighting")]
-        let led_sender = led::led_sender();
-
-        #[cfg(feature = "lighting")]
-        led_sender.send(Used::SEARCH_ANIMATION).await;
+        set_animation::<{ Side::This }>(Used::STATUS_LEDS, Used::SEARCH_ANIMATION).await;
 
         // Both sides will connect, initially with the left side as the server and the
         // right as peripheral. Once they are connected, they will generate a random
@@ -161,8 +190,8 @@ async fn main(spawner: Spawner) -> ! {
 
         #[cfg(feature = "lighting")]
         match is_master {
-            true => led_sender.send(Used::MASTER_ANIMATION).await,
-            false => led_sender.send(Used::SLAVE_ANIMATION).await,
+            true => set_animation::<{ Side::This }>(Used::STATUS_LEDS, Used::MASTER_ANIMATION).await,
+            false => set_animation::<{ Side::This }>(Used::STATUS_LEDS, Used::SLAVE_ANIMATION).await,
         }
 
         defmt::debug!("Is master: {}", is_master);
@@ -173,15 +202,11 @@ async fn main(spawner: Spawner) -> ! {
                     softdevice,
                     &mut keyboard,
                     &server,
-                    &key_state_server,
+                    &communication_server,
                     bonder,
                     ADVERTISING_DATA.get_slice(),
                     SCAN_DATA,
                     &mut pins,
-                    #[cfg(feature = "lighting")]
-                    flash_token,
-                    #[cfg(feature = "lighting")]
-                    &led_sender,
                 )
                 .await
             }
@@ -191,24 +216,15 @@ async fn main(spawner: Spawner) -> ! {
                 #[cfg(feature = "right")]
                 const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
 
-                split::do_slave(
-                    softdevice,
-                    &flash_server,
-                    &mut pins,
-                    &MASTER_ADDRESS,
-                    #[cfg(feature = "lighting")]
-                    flash_token,
-                    #[cfg(feature = "lighting")]
-                    &led_sender,
-                )
-                .await
+                split::do_slave(softdevice, &mut keyboard, &communication_server, &mut pins, &MASTER_ADDRESS).await
             }
         };
 
         defmt::error!("Halves disconnected");
 
-        #[cfg(all(feature = "lighting", not(feature = "auto-reset")))]
-        led_sender.send(Animation::Disconnected).await;
+        // TODO: reimplement this
+        //#[cfg(all(feature = "lighting", not(feature = "auto-reset")))]
+        //lighting_sender.send((Used::STATUS_LEDS, Animation::Disconnected)).await;
 
         #[cfg(not(feature = "auto-reset"))]
         futures::future::pending::<()>().await;

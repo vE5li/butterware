@@ -4,8 +4,9 @@ use nrf_softdevice::ble::{Address, AddressType};
 use crate::flash::FlashToken;
 use crate::hardware::ScanPinConfig;
 use crate::keys::Mapping;
+use crate::led::LedCollection;
 #[cfg(feature = "lighting")]
-use crate::led::{Animation, Led, Speed};
+use crate::led::{Animation, Led, LedProvider, Speed};
 
 pub trait Scannable {
     const COLUMNS: usize;
@@ -53,6 +54,9 @@ where
     /// Maximum number of bonds that can be stored permanently.
     const MAXIMUM_BONDS: usize = 10;
 
+    #[cfg(feature = "lighting")]
+    const STATUS_LEDS: <<Self::Leds as LedProvider>::Collection as LedCollection>::Index;
+
     /// Animation played when the halves are trying to find each other.
     #[cfg(feature = "lighting")]
     const SEARCH_ANIMATION: Animation = Animation::Pulsate {
@@ -78,6 +82,9 @@ where
 
     type Callbacks: Clone = !;
 
+    #[cfg(feature = "lighting")]
+    type Leds: LedProvider;
+
     /// Instantiate a new instance of the keyboard. This is only run once on
     /// boot.
     fn new(flash_token: FlashToken) -> Self;
@@ -92,6 +99,14 @@ where
     /// Function that gets called after initializing the peripherals. This is
     /// only run once on boot.
     async fn post_initialize(&mut self) {}
+
+    async fn pre_sides_connected(&mut self, is_master: bool) {
+        let _ = is_master;
+    }
+
+    async fn post_sides_connected(&mut self, is_master: bool) {
+        let _ = is_master;
+    }
 
     /// Key press callback handler.
     async fn callback(&mut self, callback: Self::Callbacks) {

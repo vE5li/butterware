@@ -4,8 +4,7 @@ use nrf_softdevice::ble::FixedGattValue;
 
 use super::{BondSlot, Peer, SystemAttributes, FLASH_OPERATIONS, SLAVE_FLASH_OPERATIONS};
 use crate::interface::Keyboard;
-#[cfg(feature = "lighting")]
-use crate::led::Animation;
+use crate::Side;
 
 #[repr(C)]
 #[derive(Clone, defmt::Format)]
@@ -19,8 +18,6 @@ pub enum FlashOperation {
         system_attributes: SystemAttributes,
     },
     RemoveBond(BondSlot),
-    #[cfg(feature = "lighting")]
-    SwitchAnimation(Animation),
     StoreBoardFlash(<crate::Used as Keyboard>::BoardFlash),
     // TODO: remove unused ?
     #[allow(unused)]
@@ -43,7 +40,7 @@ impl FixedGattValue for FlashOperation {
 }
 
 pub struct FlashTransaction<const N: usize> {
-    operations: [FlashOperation; N],
+    operations: [(Side, FlashOperation); N],
 }
 
 impl FlashTransaction<0> {
@@ -53,60 +50,71 @@ impl FlashTransaction<0> {
 }
 
 impl<const N: usize> FlashTransaction<N> {
-    fn queue_inner(self, operation: FlashOperation) -> FlashTransaction<{ N + 1 }> {
-        let mut operations: [FlashOperation; N + 1] = unsafe { MaybeUninit::zeroed().assume_init() };
+    fn queue_inner(self, side: Side, operation: FlashOperation) -> FlashTransaction<{ N + 1 }> {
+        let mut operations: [(Side, FlashOperation); N + 1] = unsafe { MaybeUninit::zeroed().assume_init() };
         operations[0..N].clone_from_slice(&self.operations);
-        operations[N] = operation;
+        operations[N] = (side, operation);
         FlashTransaction { operations }
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn store_peer(self, slot: BondSlot, peer: Peer) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(FlashOperation::StorePeer { slot, peer })
+    pub fn store_peer<const S: Side>(self, slot: BondSlot, peer: Peer) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(S, FlashOperation::StorePeer { slot, peer })
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn store_system_attributes(self, slot: BondSlot, system_attributes: SystemAttributes) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(FlashOperation::StoreSystemAttributes { slot, system_attributes })
+    pub fn store_system_attributes<const S: Side>(
+        self,
+        slot: BondSlot,
+        system_attributes: SystemAttributes,
+    ) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(S, FlashOperation::StoreSystemAttributes { slot, system_attributes })
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn remove_bond(self, slot: BondSlot) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(FlashOperation::RemoveBond(slot))
-    }
-
-    #[cfg(feature = "lighting")]
-    #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn switch_animation(self, animation: Animation) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(FlashOperation::SwitchAnimation(animation))
+    pub fn remove_bond<const S: Side>(self, slot: BondSlot) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(S, FlashOperation::RemoveBond(slot))
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn store_board_flash(self, board_flash: <crate::Used as Keyboard>::BoardFlash) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(FlashOperation::StoreBoardFlash(board_flash))
+    pub fn store_board_flash<const S: Side>(self, board_flash: <crate::Used as Keyboard>::BoardFlash) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(S, FlashOperation::StoreBoardFlash(board_flash))
     }
 
     // TODO: remove unused ?
     #[allow(unused)]
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn reset(self) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(FlashOperation::Reset)
+    pub fn reset<const S: Side>(self) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(S, FlashOperation::Reset)
     }
 
     pub async fn apply(self) {
-        for operation in self.operations.into_iter().chain(core::iter::once(FlashOperation::Apply)) {
-            FLASH_OPERATIONS.sender().send(operation.clone()).await;
-            SLAVE_FLASH_OPERATIONS.sender().send(operation).await;
+        for (side, operation) in self
+            .operations
+            .into_iter()
+            .chain(core::iter::once((Side::Both, FlashOperation::Apply)))
+        {
+            if side.includes_this() {
+                FLASH_OPERATIONS.send(operation.clone()).await;
+            }
+
+            if side.includes_other() {
+                SLAVE_FLASH_OPERATIONS.send(operation).await;
+            }
         }
     }
 
     pub fn try_apply(self) {
-        for operation in self.operations.into_iter().chain(core::iter::once(FlashOperation::Apply)) {
-            if FLASH_OPERATIONS.sender().try_send(operation.clone()).is_err() {
+        for (side, operation) in self
+            .operations
+            .into_iter()
+            .chain(core::iter::once((Side::Both, FlashOperation::Apply)))
+        {
+            if side.includes_this() && FLASH_OPERATIONS.try_send(operation.clone()).is_err() {
                 defmt::error!("Failed to send flash operation to flash task");
             }
 
-            if SLAVE_FLASH_OPERATIONS.sender().try_send(operation).is_err() {
+            if side.includes_other() && SLAVE_FLASH_OPERATIONS.try_send(operation).is_err() {
                 defmt::error!("Failed to send flash operation to slave");
             }
         }

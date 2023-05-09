@@ -3,6 +3,7 @@ use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
 use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
 
 use crate::flash::{get_settings, BondSlot, FlashToken, FlashTransaction, Peer, SystemAttributes, NO_ADDRESS};
+use crate::Side;
 
 pub struct Bonder {
     flash_token: FlashToken,
@@ -45,7 +46,7 @@ impl SecurityHandler for Bonder {
             let bond_slot = BondSlot(free_slot);
             let peer = Peer { master_id, key, peer_id };
 
-            FlashTransaction::new().store_peer(bond_slot, peer).try_apply();
+            FlashTransaction::new().store_peer::<{ Side::Both }>(bond_slot, peer).try_apply();
         }
     }
 
@@ -86,7 +87,7 @@ impl SecurityHandler for Bonder {
             system_attributes.length = length;
 
             FlashTransaction::new()
-                .store_system_attributes(bond_slot, system_attributes)
+                .store_system_attributes::<{ Side::Both }>(bond_slot, system_attributes)
                 .try_apply();
         }
     }

@@ -1,12 +1,12 @@
 use crate::flash::BondSlot;
 use crate::interface::Keyboard;
-use crate::led::Animation;
+use crate::led::{Animation, LedIndex};
 
 pub struct Layer(pub usize);
 
 pub enum SpecialAction {
     RemoveBond { bond_slot: BondSlot },
-    SwitchAnimation { animation: Animation },
+    SwitchAnimation { index: LedIndex, animation: Animation },
     Callback(<crate::Used as Keyboard>::Callbacks),
 }
 

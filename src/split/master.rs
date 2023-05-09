@@ -7,25 +7,29 @@ use nrf_softdevice::ble::{gatt_server, peripheral, set_address, Connection};
 use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
-use crate::ble::{Bonder, FlashServiceClient, KeyStateServer, KeyStateServerEvent, KeyStateServiceEvent, Server};
-use crate::flash::{get_settings, FlashToken, SlaveFlashReceiver};
-use crate::hardware::{MasterState, ScanPins, BitOperations};
+use crate::ble::{
+    Bonder, CommunicationServer, CommunicationServerEvent, FlashServiceClient, FlashServiceEvent, KeyStateServiceEvent,
+    LightingServiceClient, LightingServiceEvent, Server,
+};
+use crate::flash::flash_sender;
+use crate::hardware::{BitOperations, MasterState, ScanPins};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
-use crate::led::LedSender;
+#[cfg(feature = "lighting")]
+use crate::led::lighting_sender;
 
 pub async fn do_master(
     softdevice: &Softdevice,
     keyboard: &mut crate::Used,
     server: &Server,
-    key_state_server: &KeyStateServer,
+    communication_server: &CommunicationServer,
     bonder: &'static Bonder,
     adv_data: &[u8],
     scan_data: &[u8],
     pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
-    #[cfg(feature = "lighting")] flash_token: FlashToken,
-    #[cfg(feature = "lighting")] led_sender: &LedSender,
 ) -> Result<Infallible, HalfDisconnected> {
     defmt::debug!("Stating master");
+
+    keyboard.pre_sides_connected(true).await;
 
     // Connect to the other half
     let config = peripheral::Config::default();
@@ -34,81 +38,98 @@ pub async fn do_master(
 
     // Get the flash client of the other side.
     let flash_client: FlashServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
-    let flash_operations = crate::flash::slave_flash_receiver();
+    let other_flash_operations = crate::flash::other_flash_receiver();
+
+    // Get the led client of the other side.
+    let lighting_client: LightingServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
+    let other_lighting_operations = crate::led::other_lighting_receiver();
 
     defmt::info!("Connected to other half");
 
-    #[cfg(feature = "lighting")]
-    let animation = get_settings(flash_token).animation;
-
-    #[cfg(feature = "lighting")]
-    led_sender.send(animation).await;
+    keyboard.post_sides_connected(true).await;
 
     // Set unified address.
     set_address(softdevice, &<crate::Used as Keyboard>::ADDRESS);
 
-    let mut keyboard_state = MasterState::new();
+    let inner_future = async {
+        let mut keyboard_state = MasterState::new();
 
-    loop {
-        // Advertise
-        let config = peripheral::Config::default();
-        let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
-        let advertise_future = peripheral::advertise_pairable(softdevice, adv, &config, bonder);
-        pin_mut!(advertise_future);
+        loop {
+            // Advertise
+            let config = peripheral::Config::default();
+            let adv = peripheral::ConnectableAdvertisement::ScannableUndirected { adv_data, scan_data };
+            let advertise_future = peripheral::advertise_pairable(softdevice, adv, &config, bonder);
+            pin_mut!(advertise_future);
 
-        let host_connection = loop {
-            let inner_future = master_scan(
+            let host_connection = loop {
+                let inner_future = master_scan(keyboard, &mut keyboard_state, pins, communication_server, &slave_connection);
+
+                pin_mut!(inner_future);
+
+                match select(advertise_future, inner_future).await {
+                    Either::Left((advertise_result, _)) => {
+                        break defmt::unwrap!(advertise_result);
+                    }
+                    Either::Right((result, passed_advertise_future)) => {
+                        // We just want to make sure that the slave did not disconnect, so we discard
+                        // all other information.
+                        if result.is_err() {
+                            return HalfDisconnected;
+                        }
+
+                        advertise_future = passed_advertise_future;
+                        continue;
+                    }
+                }
+            };
+
+            defmt::warn!("Connected to host");
+
+            // Run until the host disconnects.
+            let result = master_connection(
                 keyboard,
                 &mut keyboard_state,
                 pins,
-                key_state_server,
+                server,
+                communication_server,
                 &slave_connection,
-                &flash_client,
-                &flash_operations,
-            );
-            pin_mut!(inner_future);
+                &host_connection,
+            )
+            .await;
 
-            match select(advertise_future, inner_future).await {
-                Either::Left((advertise_result, _)) => {
-                    break defmt::unwrap!(advertise_result);
-                }
-                Either::Right((result, passed_advertise_future)) => {
-                    // We just want to make sure that the slave did not disconnect, so we discard
-                    // all other information.
-                    let _ = result?;
-                    advertise_future = passed_advertise_future;
-                    continue;
-                }
+            if result.is_err() {
+                break HalfDisconnected;
             }
-        };
+        }
+    };
 
-        defmt::warn!("Connected to host");
+    let client_future = super::common::run_clients(
+        &flash_client,
+        &other_flash_operations,
+        &lighting_client,
+        &other_lighting_operations,
+    );
 
-        // Run until the host disconnects.
-        master_connection(
-            keyboard,
-            &mut keyboard_state,
-            pins,
-            server,
-            key_state_server,
-            &slave_connection,
-            &host_connection,
-            &flash_client,
-            &flash_operations,
-        )
-        .await?;
-    }
+    pin_mut!(inner_future);
+    pin_mut!(client_future);
+
+    // FIX: match ?
+    let _ = select(inner_future, client_future).await;
+
+    Err(HalfDisconnected)
 }
 
 async fn master_scan(
     keyboard: &mut crate::Used,
     state: &mut MasterState,
     pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
-    key_state_server: &KeyStateServer,
+    communication_server: &CommunicationServer,
     slave_connection: &Connection,
-    flash_client: &FlashServiceClient,
-    flash_operations: &SlaveFlashReceiver,
 ) -> Result<(usize, u64, u64), HalfDisconnected> {
+    let flash_sender = flash_sender();
+    #[cfg(feature = "lighting")]
+    let lighting_sender = lighting_sender();
+
     loop {
         let master_raw_state = state.master_raw_state;
         let slave_raw_state = state.slave_raw_state;
@@ -116,29 +137,41 @@ async fn master_scan(
         let (key_state, slave_raw_state) = {
             // Create futures.
             let scan_future = crate::hardware::do_scan(state, pins);
-            let slave_future = gatt_server::run_until(slave_connection, key_state_server, |event| match event {
-                KeyStateServerEvent::KeyStateService(event) => match event {
+            let slave_future = gatt_server::run_until(slave_connection, communication_server, |event| match event {
+                CommunicationServerEvent::KeyStateService(event) => match event {
                     KeyStateServiceEvent::KeyStateWrite(key_state) => ControlFlow::Break(key_state),
                 },
+                CommunicationServerEvent::FlashService(event) => match event {
+                    FlashServiceEvent::FlashOperationWrite(flash_operation) => {
+                        defmt::debug!("Received flash operation {:?}", flash_operation);
+
+                        if flash_sender.try_send(flash_operation).is_err() {
+                            defmt::error!("Failed to send flash operation to the flash task");
+                        }
+
+                        ControlFlow::Continue(())
+                    }
+                },
+                #[cfg(feature = "lighting")]
+                CommunicationServerEvent::LightingService(event) => match event {
+                    LightingServiceEvent::LightingOperationWrite(lighting_operation) => {
+                        defmt::debug!("Received lighting operation {:?}", lighting_operation);
+
+                        if lighting_sender.try_send(lighting_operation).is_err() {
+                            defmt::error!("Failed to send lighting operation to the lighting task");
+                        }
+
+                        ControlFlow::Continue(())
+                    }
+                },
             });
-            let flash_future = async {
-                loop {
-                    let flash_operation = flash_operations.recv().await;
 
-                    defmt::info!("Received flash operation for client");
-                    defmt::info!("Setting flash operation for client to {:?}", flash_operation);
+            pin_mut!(scan_future);
+            pin_mut!(slave_future);
 
-                    defmt::unwrap!(flash_client.flash_operation_write(&flash_operation).await);
-                }
-            };
-
-            // Pin futures so we can call select on them.
-            //pin_mut!(scan_future);
-            //pin_mut!(slave_future);
-
-            match crate::future::select3(scan_future, slave_future, flash_future).await {
+            match select(scan_future, slave_future).await {
                 // Master side state changed.
-                crate::future::Either3::First(key_state) => {
+                Either::Left((key_state, _)) => {
                     #[cfg(feature = "left")]
                     let combined_state = slave_raw_state | (key_state << <crate::Used as KeyboardExtension>::KEYS_PER_SIDE);
 
@@ -148,7 +181,7 @@ async fn master_scan(
                     (combined_state, slave_raw_state)
                 }
                 // Slave side state changed.
-                crate::future::Either3::Second(key_state) => {
+                Either::Right((key_state, _)) => {
                     let key_state = key_state.map_err(|_| HalfDisconnected)?;
 
                     #[cfg(feature = "left")]
@@ -159,7 +192,6 @@ async fn master_scan(
 
                     (combined_state, key_state)
                 }
-                crate::future::Either3::Third(..) => unreachable!(),
             }
         };
 
@@ -178,25 +210,15 @@ async fn master_connection(
     state: &mut MasterState,
     pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     server: &Server,
-    key_state_server: &KeyStateServer,
+    communication_server: &CommunicationServer,
     slave_connection: &Connection,
     host_connection: &Connection,
-    flash_client: &FlashServiceClient,
-    flash_operations: &SlaveFlashReceiver,
 ) -> Result<(), HalfDisconnected> {
     let host_future = gatt_server::run(host_connection, server, |_| {});
     pin_mut!(host_future);
 
     loop {
-        let inner_future = master_scan(
-            keyboard,
-            state,
-            pins,
-            key_state_server,
-            slave_connection,
-            flash_client,
-            flash_operations,
-        );
+        let inner_future = master_scan(keyboard, state, pins, communication_server, slave_connection);
         pin_mut!(inner_future);
 
         match select(host_future, inner_future).await {

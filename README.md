@@ -23,7 +23,7 @@ Butterware is written entirely in [Rust](https://www.rust-lang.org/) and is base
 
 # Building
 
-Unlike QMK, Butterware is always compiled for a specific side, so you need to specify which side to build for. For example, to build the firmware for the left side of the Butterboard, you might run:
+Unlike QMK, Butterware is always compiled for a specific side, so you need to specify which side to build for. For example, to build the firmware for the left side of the [Butterboard](https://github.com/vE5li/butterboard), you might run:
 
 `make KEYBOARD=butterboard SIDE=left`
 

@@ -1,11 +1,9 @@
 use embassy_cortex_m::interrupt::Interrupt;
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::interrupt;
-use embassy_nrf::peripherals::{self, SPI2, SPI3, TWISPI1};
-use embassy_nrf::spim::{self, Config, Spim};
-use embassy_nrf::spis::MODE_1;
 
-use crate::interface::UnwrapInfelliable;
+use crate::interface::{Keyboard, UnwrapInfelliable};
+use crate::led::LedProvider;
 
 mod debounce;
 mod random;
@@ -15,41 +13,17 @@ pub use self::debounce::DebouncedKey;
 pub use self::random::generate_random_u32;
 pub use self::state::{do_scan, KeyState, MasterState, SlaveState};
 
-pub struct SpiConfig {
-    pub interface: SPI3,
-    pub clock_pin: AnyPin,
-    pub mosi_pin: AnyPin,
-}
-
-pub struct Spi2Config {
-    pub interface: SPI2,
-    pub clock_pin: AnyPin,
-    pub mosi_pin: AnyPin,
-}
-
-pub struct Spi1Config {
-    pub interface: TWISPI1,
-    pub clock_pin: AnyPin,
-    pub mosi_pin: AnyPin,
-}
+pub type UsedLeds = <<crate::Used as Keyboard>::Leds as LedProvider>::Collection;
 
 pub struct ScanPinConfig<const C: usize, const R: usize> {
     pub columns: [AnyPin; C],
     pub rows: [AnyPin; R],
     pub power_pin: Option<AnyPin>,
-    pub spi_config: Option<SpiConfig>,
-    pub spi_2_config: Option<Spi2Config>,
-    pub spi_1_config: Option<Spi1Config>,
+    pub leds: <<crate::Used as Keyboard>::Leds as LedProvider>::Collection,
 }
 
-embassy_nrf::bind_interrupts!(struct Irqs {
-    SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
-    SPIM2_SPIS2_SPI2 => spim::InterruptHandler<peripherals::SPI2>;
-    SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1 => spim::InterruptHandler<peripherals::TWISPI1>;
-});
-
 impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
-    pub fn to_pins(self) -> (ScanPins<'static, C, R>, Spis<'static>) {
+    pub fn to_pins(self) -> (ScanPins<'static, C, R>, UsedLeds) {
         use embassy_nrf::interrupt::InterruptExt;
 
         let columns = self
@@ -72,34 +46,7 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
         unsafe { interrupt::SPIM2_SPIS2_SPI2::steal() }.set_priority(interrupt::Priority::P2);
         unsafe { interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1::steal() }.set_priority(interrupt::Priority::P2);
 
-        // FIX: fix colliding names
-        let mut config_foo = Config::default();
-        config_foo.frequency = embassy_nrf::spim::Frequency::M8;
-        config_foo.mode = MODE_1;
-
-        let spi = self
-            .spi_config
-            .map(|config| Spim::new_txonly(config.interface, Irqs, config.clock_pin, config.mosi_pin, config_foo));
-
-        // FIX: fix colliding names
-        let mut config_foo = Config::default();
-        config_foo.frequency = embassy_nrf::spim::Frequency::M8;
-        config_foo.mode = MODE_1;
-
-        let spi_2 = self
-            .spi_2_config
-            .map(|config| Spim::new_txonly(config.interface, Irqs, config.clock_pin, config.mosi_pin, config_foo));
-
-        // FIX: fix colliding names
-        let mut config_foo = Config::default();
-        config_foo.frequency = embassy_nrf::spim::Frequency::M8;
-        config_foo.mode = MODE_1;
-
-        let spi_1 = self
-            .spi_1_config
-            .map(|config| Spim::new_txonly(config.interface, Irqs, config.clock_pin, config.mosi_pin, config_foo));
-
-        (ScanPins { columns, rows, power_pin }, Spis { spi, spi_2, spi_1 })
+        (ScanPins { columns, rows, power_pin }, self.leds)
     }
 }
 
@@ -107,12 +54,6 @@ pub struct ScanPins<'a, const C: usize, const R: usize> {
     pub columns: [Output<'a, AnyPin>; C],
     pub rows: [Input<'a, AnyPin>; R],
     pub power_pin: Option<Output<'a, AnyPin>>,
-}
-
-pub struct Spis<'a> {
-    pub spi: Option<Spim<'a, SPI3>>,
-    pub spi_2: Option<Spim<'a, SPI2>>,
-    pub spi_1: Option<Spim<'a, TWISPI1>>,
 }
 
 #[derive(Debug)]

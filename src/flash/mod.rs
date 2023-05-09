@@ -8,8 +8,6 @@ use nrf_softdevice::ble::{Address, EncryptionInfo, IdentityKey, MasterId};
 pub use self::settings::{flash_task, get_settings, initalize_flash, FlashToken};
 pub use self::transaction::{FlashOperation, FlashTransaction};
 use crate::interface::Keyboard;
-#[cfg(feature = "lighting")]
-use crate::led::Animation;
 
 // The Bluetooth address 00:00:00:00:00:00 is technically valid but rarely used
 // because it is known to cause problems with most operating systems. So we
@@ -22,13 +20,13 @@ static FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, FLASH_CHANN
 static SLAVE_FLASH_OPERATIONS: Channel<ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE> = Channel::new();
 
 pub type FlashSender = Sender<'static, ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE>;
-pub type SlaveFlashReceiver = Receiver<'static, ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE>;
+pub type OtherFlashReceiver = Receiver<'static, ThreadModeRawMutex, FlashOperation, FLASH_CHANNEL_SIZE>;
 
 pub fn flash_sender() -> FlashSender {
     FLASH_OPERATIONS.sender()
 }
 
-pub fn slave_flash_receiver() -> SlaveFlashReceiver {
+pub fn other_flash_receiver() -> OtherFlashReceiver {
     SLAVE_FLASH_OPERATIONS.receiver()
 }
 
@@ -68,7 +66,5 @@ pub struct Bond {
 #[derive(Clone, defmt::Format)]
 pub struct Settings {
     pub bonds: [Bond; <crate::Used as Keyboard>::MAXIMUM_BONDS],
-    #[cfg(feature = "lighting")]
-    pub animation: Animation,
     pub board_flash: <crate::Used as Keyboard>::BoardFlash,
 }

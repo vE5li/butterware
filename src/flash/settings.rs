@@ -9,7 +9,6 @@ use nrf_softdevice::Flash;
 use super::Settings;
 use crate::flash::{FlashOperation, FLASH_OPERATIONS, NO_ADDRESS};
 use crate::interface::Keyboard;
-use crate::led::led_sender;
 
 // Struct that perfectly alignes with page boundaries of the flash. Placing this
 // into the flash gives us a very simple and clean way to get the address and
@@ -91,10 +90,6 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
     let receiver = FLASH_OPERATIONS.receiver();
     let mut apply_flags = ApplyFlags::NONE;
 
-    // Led sender
-    #[cfg(feature = "lighting")]
-    let led_sender = led_sender();
-
     pin_mut!(flash);
 
     loop {
@@ -124,17 +119,6 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
                     apply_flags |= ApplyFlags::WRITE;
                 }
             }
-            FlashOperation::SwitchAnimation(animation) => {
-                if aligned.settings.animation != animation {
-                    aligned.settings.animation = animation;
-
-                    led_sender.send(animation).await;
-
-                    // Since we are potentially trying to set bits to 1 that are currently 0, we
-                    // need to erase the section before writing.
-                    apply_flags |= ApplyFlags::ERASE_AND_WRITE;
-                }
-            }
             FlashOperation::StoreBoardFlash(board_flash) => {
                 aligned.settings.board_flash = board_flash;
 
@@ -155,9 +139,8 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
                 }
 
                 if apply_flags.contains(ApplyFlags::WRITE) {
-                    let bytes = unsafe {
-                        core::mem::transmute::<&AlignedSettings, &[u8; core::mem::size_of::<AlignedSettings>()]>(aligned)
-                    };
+                    let bytes =
+                        unsafe { core::mem::transmute::<&AlignedSettings, &[u8; core::mem::size_of::<AlignedSettings>()]>(aligned) };
 
                     defmt::trace!("Writing with value: {:#?}", bytes);
                     defmt::unwrap!(flash.write(token.address, bytes).await);
