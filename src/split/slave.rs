@@ -56,6 +56,7 @@ pub async fn do_slave(
     let mut keyboard_state = SlaveState::new();
 
     let connection_future = slave_connection(
+        keyboard,
         &mut keyboard_state,
         pins,
         &master_connection,
@@ -79,6 +80,7 @@ pub async fn do_slave(
 }
 
 async fn slave_connection(
+    _keyboard: &mut crate::Used,
     state: &mut SlaveState,
     pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     master_connection: &Connection,
@@ -106,6 +108,14 @@ async fn slave_connection(
                     }
                 }
             },
+            /*CommunicationServerEvent::EventService(event) => match event {
+                EventServiceEvent::EventWrite(event) => {
+                    defmt::debug!("Received event {:?}", flash_operation);
+
+                    keyboard.event(event).await;
+                    ControlFlow::Continue(())
+                }
+            },*/
             #[cfg(feature = "lighting")]
             CommunicationServerEvent::LightingService(event) => match event {
                 LightingServiceEvent::LightingOperationWrite(lighting_operation) => {

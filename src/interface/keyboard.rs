@@ -82,6 +82,8 @@ where
 
     type Callbacks: Clone = !;
 
+    type Events: Clone = !;
+
     #[cfg(feature = "lighting")]
     type Leds: LedProvider;
 
@@ -112,6 +114,11 @@ where
     async fn callback(&mut self, callback: Self::Callbacks) {
         let _ = callback;
         defmt::warn!("Callback handler not defined");
+    }
+
+    async fn event(&mut self, event: Self::Events) {
+        let _ = event;
+        defmt::warn!("Event handler not defined");
     }
 }
 

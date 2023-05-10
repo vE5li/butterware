@@ -7,6 +7,7 @@ use crate::hardware::ScanPinConfig;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::*;
 use crate::led::{set_animation, Animation, Grb, Led, Rgb, Speed, Ws2812bDriver};
+use crate::split::trigger_event;
 use crate::Side;
 
 #[derive(Clone, Copy, defmt::Format)]
@@ -35,7 +36,7 @@ register_leds!(Butterboard, Leds, [
     Status: Ws2812bDriver<17, Grb, SPI2>,
 ]);
 
-//register_events!(Butterboard, Events, [SyncAnimations]);
+register_events!(Butterboard, Events, [SyncAnimations]);
 
 #[rustfmt::skip]
 macro_rules! new_layer {
@@ -107,7 +108,7 @@ impl Butterboard {
     const SPE_SPC: Mapping = Mapping::tap_layer(Layers::SPECIAL, SPACE);
     #[rustfmt::skip]
     const TEST: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
-        Q, W, Callbacks::NextKeysAnimation.mapping(), Callbacks::NextWingsAnimation.mapping(), Callbacks::NextStatusAnimation.mapping(), J, L, U, Y, Y,
+        Callbacks::SyncAnimations.mapping(), W, Callbacks::NextKeysAnimation.mapping(), Callbacks::NextWingsAnimation.mapping(), Callbacks::NextStatusAnimation.mapping(), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(Layers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
@@ -119,11 +120,11 @@ impl Butterboard {
         let animation = Self::ANIMATIONS[self.persistent_data.keys_animation];
 
         // Set the animation for both sides.
-        set_animation::<{ Side::Both }>(Leds::Keys, animation).await;
+        set_animation(Side::Both, Leds::Keys, animation).await;
 
         // Store persistent data on both sides.
         FlashTransaction::new()
-            .store_board_flash::<{ Side::Both }>(self.persistent_data)
+            .store_board_flash(Side::Both, self.persistent_data)
             .apply()
             .await;
     }
@@ -134,11 +135,11 @@ impl Butterboard {
         let animation = Self::ANIMATIONS[self.persistent_data.wings_animation];
 
         // Set the animation for both sides.
-        set_animation::<{ Side::Both }>(Leds::Wings, animation).await;
+        set_animation(Side::Both, Leds::Wings, animation).await;
 
         // Store persistent data on both sides.
         FlashTransaction::new()
-            .store_board_flash::<{ Side::Both }>(self.persistent_data)
+            .store_board_flash(Side::Both, self.persistent_data)
             .apply()
             .await;
     }
@@ -149,11 +150,11 @@ impl Butterboard {
         let animation = Self::ANIMATIONS[self.persistent_data.status_animation];
 
         // Set the animation for both sides.
-        set_animation::<{ Side::Both }>(Leds::Status, animation).await;
+        set_animation(Side::Both, Leds::Status, animation).await;
 
         // Store persistent data on both sides.
         FlashTransaction::new()
-            .store_board_flash::<{ Side::Both }>(self.persistent_data)
+            .store_board_flash(Side::Both, self.persistent_data)
             .apply()
             .await;
     }
@@ -167,8 +168,8 @@ impl Scannable for Butterboard {
 impl Keyboard for Butterboard {
     type BoardFlash = PersistentData;
     type Callbacks = Callbacks;
+    type Events = Events;
     type Leds = Leds;
-    //type Events = Events;
 
     const DEVICE_NAME: &'static [u8] = b"Butterboard";
     const LAYER_LOOKUP: &'static [&'static [Mapping; Self::KEYS_TOTAL]] = Layers::LAYER_LOOKUP;
@@ -186,19 +187,17 @@ impl Keyboard for Butterboard {
             Callbacks::NextKeysAnimation => self.next_keys_animation().await,
             Callbacks::NextWingsAnimation => self.next_wings_animation().await,
             Callbacks::NextStatusAnimation => self.next_status_animation().await,
-            Callbacks::SyncAnimations =>
-                /* trigger_event::<Side::Both>(Event::SyncAnimations) */
-                {}
+            Callbacks::SyncAnimations => trigger_event(Side::Both, Events::SyncAnimations).await,
         }
     }
 
-    /*async fn event(&mut self, event: Event) {
+    async fn event(&mut self, event: Events) {
         match event {
-            Event::SyncAnimations => {
+            Events::SyncAnimations => {
                 // Sync animations
             }
         }
-    }*/
+    }
 
     async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
         ScanPinConfig {
@@ -229,9 +228,10 @@ impl Keyboard for Butterboard {
         let wings_animation = Self::ANIMATIONS[self.persistent_data.wings_animation];
         let status_animation = Self::ANIMATIONS[self.persistent_data.status_animation];
 
-        // Set animations only for each side individually.
-        set_animation::<{ Side::This }>(Leds::Keys, keys_animation).await;
-        set_animation::<{ Side::This }>(Leds::Wings, wings_animation).await;
-        set_animation::<{ Side::This }>(Leds::Status, status_animation).await;
+        // Restore animations for each side individually. This allows both side to run
+        // different animations.
+        set_animation(Side::This, Leds::Keys, keys_animation).await;
+        set_animation(Side::This, Leds::Wings, wings_animation).await;
+        set_animation(Side::This, Leds::Status, status_animation).await;
     }
 }

@@ -58,34 +58,30 @@ impl<const N: usize> FlashTransaction<N> {
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn store_peer<const S: Side>(self, slot: BondSlot, peer: Peer) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(S, FlashOperation::StorePeer { slot, peer })
+    pub fn store_peer(self, side: Side, slot: BondSlot, peer: Peer) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(side, FlashOperation::StorePeer { slot, peer })
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn store_system_attributes<const S: Side>(
-        self,
-        slot: BondSlot,
-        system_attributes: SystemAttributes,
-    ) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(S, FlashOperation::StoreSystemAttributes { slot, system_attributes })
+    pub fn store_system_attributes(self, side: Side, slot: BondSlot, system_attributes: SystemAttributes) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(side, FlashOperation::StoreSystemAttributes { slot, system_attributes })
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn remove_bond<const S: Side>(self, slot: BondSlot) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(S, FlashOperation::RemoveBond(slot))
+    pub fn remove_bond(self, side: Side, slot: BondSlot) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(side, FlashOperation::RemoveBond(slot))
     }
 
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn store_board_flash<const S: Side>(self, board_flash: <crate::Used as Keyboard>::BoardFlash) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(S, FlashOperation::StoreBoardFlash(board_flash))
+    pub fn store_board_flash(self, side: Side, board_flash: <crate::Used as Keyboard>::BoardFlash) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(side, FlashOperation::StoreBoardFlash(board_flash))
     }
 
     // TODO: remove unused ?
     #[allow(unused)]
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn reset<const S: Side>(self) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(S, FlashOperation::Reset)
+    pub fn reset(self, side: Side) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(side, FlashOperation::Reset)
     }
 
     pub async fn apply(self) {

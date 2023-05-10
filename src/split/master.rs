@@ -152,6 +152,14 @@ async fn master_scan(
                         ControlFlow::Continue(())
                     }
                 },
+                /*CommunicationServerEvent::EventService(event) => match event {
+                    EventServiceEvent::EventWrite(event) => {
+                        defmt::debug!("Received event {:?}", flash_operation);
+
+                        keyboard.event(event).await;
+                        ControlFlow::Continue(())
+                    }
+                },*/
                 #[cfg(feature = "lighting")]
                 CommunicationServerEvent::LightingService(event) => match event {
                     LightingServiceEvent::LightingOperationWrite(lighting_operation) => {

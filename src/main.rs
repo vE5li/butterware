@@ -8,7 +8,6 @@
 #![feature(async_fn_in_trait)]
 #![feature(associated_type_defaults)]
 #![feature(never_type)]
-#![feature(adt_const_params)]
 #![allow(incomplete_features)]
 
 use embassy_executor::Spawner;
@@ -177,7 +176,7 @@ async fn main(spawner: Spawner) -> ! {
         set_address(softdevice, &Used::RIGHT_ADDRESS);
 
         #[cfg(feature = "lighting")]
-        set_animation::<{ Side::This }>(Used::STATUS_LEDS, Used::SEARCH_ANIMATION).await;
+        set_animation(Side::This, Used::STATUS_LEDS, Used::SEARCH_ANIMATION).await;
 
         // Both sides will connect, initially with the left side as the server and the
         // right as peripheral. Once they are connected, they will generate a random
@@ -190,8 +189,8 @@ async fn main(spawner: Spawner) -> ! {
 
         #[cfg(feature = "lighting")]
         match is_master {
-            true => set_animation::<{ Side::This }>(Used::STATUS_LEDS, Used::MASTER_ANIMATION).await,
-            false => set_animation::<{ Side::This }>(Used::STATUS_LEDS, Used::SLAVE_ANIMATION).await,
+            true => set_animation(Side::This, Used::STATUS_LEDS, Used::MASTER_ANIMATION).await,
+            false => set_animation(Side::This, Used::STATUS_LEDS, Used::SLAVE_ANIMATION).await,
         }
 
         defmt::debug!("Is master: {}", is_master);

@@ -4,6 +4,7 @@ use futures::pin_mut;
 use nrf_softdevice::ble::gatt_client::WriteError;
 use nrf_softdevice::RawError;
 
+//use super::event::OtherEventReceiver;
 use crate::ble::FlashServiceClient;
 #[cfg(feature = "lighting")]
 use crate::ble::LightingServiceClient;
@@ -16,6 +17,8 @@ pub async fn run_clients(
     other_flash_operations: &OtherFlashReceiver,
     lighting_client: &LightingServiceClient,
     other_lighting_operations: &OtherLightingReceiver,
+    //event_client: &EventServiceClient,
+    //other_events: OtherEventReceiver,
 ) {
     let flash_future = async {
         loop {

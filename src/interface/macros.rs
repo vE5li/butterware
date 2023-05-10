@@ -28,6 +28,17 @@ macro_rules! register_callbacks {
 }
 
 #[allow(unused_macros)]
+macro_rules! register_events {
+    ($board:ident, $events:ident, [$($names:ident),* $(,)?]) => {
+        #[repr(C)]
+        #[derive(Clone, Copy, Debug, defmt::Format, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub enum $events {
+            $($names),*
+        }
+    };
+}
+
+#[allow(unused_macros)]
 macro_rules! register_leds {
     ($board:ident, $leds:ident, [$($names:ident: $types:ty,)* $(,)?]) => {
 
@@ -37,6 +48,7 @@ macro_rules! register_leds {
             $($names),*
         }
 
+        #[allow(non_snake_case)]
         pub struct GeneratedLedStorage {
             $($names: $types),*
         }
@@ -68,26 +80,3 @@ macro_rules! register_leds {
         }
     };
 }
-
-// # Custom example
-//
-// pub struct LedStrips {
-//     strip_0: Ws2812bDriver<10, Rgb, SPI1>::spawn(),
-//     strip_1: Ws2812bDriver<15, Rgb, SPI2>::spawn(),
-// }
-//
-// impl LedCollection for LedStrips {
-//     type Index = bool;
-//
-//     fn spawn() {
-//         self.strip_0.spawn();
-//         self.strip_1.spawn();
-//     }
-//
-//     fn set_animation(&mut self, index: Self::Index, animtaion: Animation) {
-//         match index {
-//             true => self.strip_0.set_animation(animtaion),
-//             false => self.strip_1.set_animation(animtaion),
-//         }
-//     }
-// }

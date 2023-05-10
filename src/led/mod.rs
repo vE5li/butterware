@@ -33,14 +33,14 @@ impl FixedGattValue for LightingOperation {
     }
 }
 
-pub async fn set_animation<const S: Side>(index: LedIndex, animation: Animation) {
+pub async fn set_animation(side: Side, index: LedIndex, animation: Animation) {
     let lighting_operation = LightingOperation::SetAnimation { index, animation };
 
-    if S.includes_this() {
+    if side.includes_this() {
         LIGHTING_OPERATIONS.send(lighting_operation.clone()).await;
     }
 
-    if S.includes_other() {
+    if side.includes_other() {
         OTHER_LIGHTING_OPERATIONS.send(lighting_operation).await;
     }
 }
