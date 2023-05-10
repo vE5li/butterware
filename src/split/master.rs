@@ -40,9 +40,13 @@ pub async fn do_master(
     let flash_client: FlashServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
     let other_flash_operations = crate::flash::other_flash_receiver();
 
-    // Get the led client of the other side.
+    // Get the lighting client of the other side.
     let lighting_client: LightingServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
     let other_lighting_operations = crate::led::other_lighting_receiver();
+
+    // Get the event client of the other side.
+    let event_client: EventServiceClient = defmt::unwrap!(nrf_softdevice::ble::gatt_client::discover(&slave_connection).await);
+    let other_events = crate::split::event::other_event_receiver();
 
     defmt::info!("Connected to other half");
 
@@ -108,6 +112,8 @@ pub async fn do_master(
         &other_flash_operations,
         &lighting_client,
         &other_lighting_operations,
+        &event_client,
+        &other_events,
     );
 
     pin_mut!(inner_future);
