@@ -46,7 +46,7 @@ pub struct FlashToken {
     address: u32,
 }
 
-pub async fn initalize_flash(flash: &mut Flash) -> FlashToken {
+pub async fn initialize_flash(flash: &mut Flash) -> FlashToken {
     let address = &RESERVED_FLASH as *const _ as u32;
     defmt::debug!("Settings flash is at address 0x{:x}", &RESERVED_FLASH as *const _);
 

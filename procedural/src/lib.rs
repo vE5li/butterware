@@ -30,6 +30,7 @@ pub fn alias_keyboard(input: TokenStream) -> TokenStream {
     #[cfg(feature = "right")]
     let side = "Right";
 
+    #[cfg(any(feature = "left", feature = "right"))]
     println!(
         "[{}] Building for {} - {}",
         "Build system".red().bold(),

@@ -35,6 +35,21 @@ macro_rules! register_events {
         pub enum $events {
             $($names),*
         }
+
+        impl nrf_softdevice::ble::FixedGattValue for $events {
+            const SIZE: usize = core::mem::size_of::<$events>();
+
+            fn from_gatt(data: &[u8]) -> Self {
+                let mut buffer = [0; Self::SIZE];
+                buffer.copy_from_slice(data);
+                unsafe { core::mem::transmute::<&[u8; Self::SIZE], &$events>(&buffer).clone() }
+            }
+
+            fn to_gatt(&self) -> &[u8] {
+                unsafe { core::mem::transmute::<&$events, &[u8; Self::SIZE]>(self) }
+            }
+        }
+
     };
 }
 

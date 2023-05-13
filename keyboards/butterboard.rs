@@ -6,7 +6,7 @@ use crate::flash::{get_settings, FlashToken, FlashTransaction};
 use crate::hardware::ScanPinConfig;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::*;
-use crate::led::{set_animation, Animation, Grb, Led, Rgb, Speed, Ws2812bDriver};
+use crate::led::{set_animation, Animation, Grb, Led, Rgb, Speed, Ws2812bDriver, Sk6812Driver};
 use crate::split::trigger_event;
 use crate::Side;
 
@@ -31,7 +31,7 @@ register_callbacks!(Butterboard, Callbacks, [
 ]);
 
 register_leds!(Butterboard, Leds, [
-    Keys: Ws2812bDriver<19, Rgb, SPI3>,
+    Keys: Sk6812Driver<19, Rgb, SPI3>,
     Wings: Ws2812bDriver<57, Grb, TWISPI1>,
     Status: Ws2812bDriver<17, Grb, SPI2>,
 ]);
@@ -96,7 +96,7 @@ impl Butterboard {
         Q, W, F, P, B, J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Z, X, C, D, Mapping::tap_layer(Layers::TEST, V), K, H, H, H, Mapping::tap_layer(Layers::TEST, H),
-        NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
+        NONE, MOD_LCTRL, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
     ];
     #[rustfmt::skip]
     const SPECIAL: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
@@ -111,7 +111,7 @@ impl Butterboard {
         Callbacks::SyncAnimations.mapping(), W, Callbacks::NextKeysAnimation.mapping(), Callbacks::NextWingsAnimation.mapping(), Callbacks::NextStatusAnimation.mapping(), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(Layers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
-        NONE, NONE, NONE, NONE, Self::SPE_SPC, NONE, NONE, NONE, NONE, NONE,
+        NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
     ];
 
     async fn next_keys_animation(&mut self) {
@@ -215,13 +215,17 @@ impl Keyboard for Butterboard {
                 peripherals.P0_11.degrade(),
             ],
             leds: initialize_leds! {
-                Keys: Ws2812bDriver::new(peripherals.P0_06.degrade(), peripherals.P0_08.degrade(), peripherals.SPI3),
-                Wings: Ws2812bDriver::new(peripherals.P0_17.degrade(), peripherals.P0_09.degrade(), peripherals.TWISPI1),
-                Status: Ws2812bDriver::new(peripherals.P0_20.degrade(), peripherals.P0_10.degrade(), peripherals.SPI2),
+                Keys: Sk6812Driver::new(peripherals.P0_06.degrade(), peripherals.P0_08.degrade(), peripherals.SPI3),
+                Wings: Ws2812bDriver::new(peripherals.P0_20.degrade(), peripherals.P0_09.degrade(), peripherals.TWISPI1),
+                Status: Ws2812bDriver::new(peripherals.P0_17.degrade(), peripherals.P0_10.degrade(), peripherals.SPI2),
             },
             power_pin: Some(peripherals.P0_13.degrade()),
         }
     }
+
+    /*async fn post_initialize(&mut self) {
+        set_animation(Side::This, Leds::Keys, Animation::Static { color:  }).await;
+    }*/
 
     async fn post_sides_connected(&mut self, _is_master: bool) {
         let keys_animation = Self::ANIMATIONS[self.persistent_data.keys_animation];

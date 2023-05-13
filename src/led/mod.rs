@@ -1,5 +1,5 @@
 use embassy_nrf::gpio::AnyPin;
-use embassy_nrf::spim::Spim;
+use embassy_nrf::spim::{Mode, Spim};
 use embassy_nrf::{peripherals, spim};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
@@ -361,6 +361,176 @@ where
             }
 
             let _ = self.spi.write(&self.strip.get_led_data()).await;
+        }
+    }
+}
+
+// T0H 1
+// T1H 11
+//
+// T0L 0000
+// T1L 000
+
+// 0 -> 10000
+// 1 -> 11000
+
+pub struct Sk6812Driver<const C: usize, R, SPI: spim::Instance> {
+    strip: LedStrip<C>,
+    spi: Spim<'static, SPI>,
+    phantom_data: core::marker::PhantomData<(R, SPI)>,
+    current_animation: Animation,
+}
+
+impl<const C: usize, R, SPI: spim::Instance> Sk6812Driver<C, R, SPI>
+where
+    Irqs: embassy_cortex_m::interrupt::Binding<<SPI as embassy_nrf::spim::Instance>::Interrupt, embassy_nrf::spim::InterruptHandler<SPI>>,
+{
+    pub fn new(mosi_pin: AnyPin, clock_pin: AnyPin, spi: SPI) -> Self {
+        let mut config = embassy_nrf::spim::Config::default();
+        config.frequency = embassy_nrf::spim::Frequency::M4;
+        config.mode = embassy_nrf::spim::MODE_1;
+
+        let initial_animation = Animation::Static {
+            color: Led::rgb(0.0, 0.0, 0.0),
+        };
+
+        Self {
+            strip: LedStrip::new(),
+            spi: Spim::new_txonly(spi, Irqs, clock_pin, mosi_pin, config),
+            current_animation: initial_animation,
+            phantom_data: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<const C: usize, R, SPI: spim::Instance> Sk6812Driver<C, R, SPI>
+where
+    [(); C]:,
+    [(); C * 5 * 3]:,
+{
+    fn write_value_to_slice(slice: &mut [u8], value: u8) {
+        const LOOKUP: [u8; 2] = [0b0, 0b1];
+
+        let test_bit = |offset: usize| ((value >> offset) & 0b1) as usize;
+
+        // 4 -> 00011000
+        // 3 -> 01100011
+        // 2 -> 10001100
+        // 1 -> 00110001
+        // 0 -> 11000110
+
+        slice[4] = 0b10000100 | (LOOKUP[test_bit(0)] << 6) | (LOOKUP[test_bit(1)] << 1);
+        slice[3] = 0b00100001 | (LOOKUP[test_bit(2)] << 4);
+        slice[2] = 0b00001000 | (LOOKUP[test_bit(3)] << 7) | (LOOKUP[test_bit(4)] << 2);
+        slice[1] = 0b01000010 | (LOOKUP[test_bit(5)] << 5) | LOOKUP[test_bit(6)];
+        slice[0] = 0b00010000 | (LOOKUP[test_bit(7)] << 3);
+    }
+
+    pub fn get_led_data(&self) -> [u8; C * 5 * 3] {
+        let mut buffer = [0; C * 5 * 3];
+
+        for index in 0..C {
+            let offset = 5 * 3 * index;
+            let led = self.strip.leds[index];
+            Self::write_value_to_slice(&mut buffer[offset..offset + 5], (led.red * 255.0) as u8);
+            Self::write_value_to_slice(&mut buffer[offset + 5..offset + 10], (led.green * 255.0) as u8);
+            Self::write_value_to_slice(&mut buffer[offset + 10..offset + 15], (led.blue * 255.0) as u8);
+        }
+
+        buffer
+    }
+
+    pub fn get_barrier_led_data(&self) -> [u8; C * 5 * 3] {
+        let mut buffer = [0; C * 5 * 3];
+        let (barrier_leds, amount) = self.strip.barriers.first().unwrap();
+
+        for index in 0..C {
+            let offset = 5 * 3 * index;
+            let led = self.strip.leds[index];
+            let barrier_led = barrier_leds[index];
+            Self::write_value_to_slice(
+                &mut buffer[offset..offset + 5],
+                ((led.red * (1.0 - amount) + barrier_led.red * amount) * 255.0) as u8,
+            );
+            Self::write_value_to_slice(
+                &mut buffer[offset + 5..offset + 10],
+                ((led.green * (1.0 - amount) + barrier_led.green * amount) * 255.0) as u8,
+            );
+            Self::write_value_to_slice(
+                &mut buffer[offset + 10..offset + 15],
+                ((led.blue * (1.0 - amount) + barrier_led.blue * amount) * 255.0) as u8,
+            );
+        }
+
+        buffer
+    }
+}
+
+impl<const C: usize, R, SPI: spim::Instance> LedDriver for Sk6812Driver<C, R, SPI>
+where
+    [(); C]:,
+    [(); C * 5 * 3]:,
+{
+    fn set_animation(&mut self, animation: Animation) {
+        match animation {
+            Animation::Static { color } => {
+                self.strip.insert_uniform_barrier(color);
+            }
+            Animation::Pulsate { color, offset, .. } => {
+                // Between 0 and 1
+                let brightness = 0.5 + (libm::sin(offset as f64) * 0.5);
+                let led = Led::rgb(
+                    color.red * brightness as f32,
+                    color.green * brightness as f32,
+                    color.blue * brightness as f32,
+                );
+
+                self.strip.insert_uniform_barrier(led);
+            }
+            Animation::Rainbow { hue, .. } => {
+                let color = palette::Hsl::<palette::encoding::Srgb, f32>::new(hue, 1.0, 0.5);
+                let color = palette::rgb::Rgb::from_color(color);
+                let (red, green, blue) = color.into_linear().into_components();
+                let led = Led::rgb(red, green, blue);
+
+                self.strip.insert_uniform_barrier(led);
+            }
+        }
+
+        self.current_animation = animation;
+    }
+
+    async fn update(&mut self, elapsed_time: f32) {
+        if self.strip.update_barrier(elapsed_time) {
+            let _ = self.spi.write(&self.get_barrier_led_data()).await;
+        } else {
+            match &mut self.current_animation {
+                Animation::Static { .. } => {}
+                Animation::Pulsate { offset, color, speed } => {
+                    *offset += speed.0 * elapsed_time;
+                    // Between 0 and 1
+                    let brightness = 0.5 + (libm::sin(*offset as f64) * 0.5);
+                    let led = Led::rgb(
+                        color.red * brightness as f32,
+                        color.green * brightness as f32,
+                        color.blue * brightness as f32,
+                    );
+
+                    self.strip.set_uniform_color(led);
+                }
+                Animation::Rainbow { hue, speed } => {
+                    *hue += speed.0 * elapsed_time;
+
+                    let color = palette::Hsl::<palette::encoding::Srgb, f32>::new(*hue, 1.0, 0.5);
+                    let color = palette::rgb::Rgb::from_color(color);
+                    let (red, green, blue) = color.into_linear().into_components();
+                    let led = Led::rgb(red, green, blue);
+
+                    self.strip.set_uniform_color(led);
+                }
+            }
+
+            let _ = self.spi.write(&self.get_led_data()).await;
         }
     }
 }

@@ -7,7 +7,8 @@ use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
 use crate::ble::{
-    CommunicationServer, CommunicationServerEvent, FlashServiceClient, FlashServiceEvent, KeyStateServiceClient, KeyStateServiceEvent,
+    CommunicationServer, CommunicationServerEvent, EventServiceClient, FlashServiceClient, FlashServiceEvent, KeyStateServiceClient,
+    KeyStateServiceEvent, EventServiceEvent,
 };
 #[cfg(feature = "lighting")]
 use crate::ble::{LightingServiceClient, LightingServiceEvent};
@@ -114,14 +115,13 @@ async fn slave_connection(
                     }
                 }
             },
-            /*CommunicationServerEvent::EventService(event) => match event {
+            CommunicationServerEvent::EventService(event) => match event {
                 EventServiceEvent::EventWrite(event) => {
-                    defmt::debug!("Received event {:?}", flash_operation);
+                    defmt::debug!("Received event {:?}", event);
 
-                    keyboard.event(event).await;
-                    ControlFlow::Continue(())
+                    //keyboard.event(event).await;
                 }
-            },*/
+            },
             #[cfg(feature = "lighting")]
             CommunicationServerEvent::LightingService(event) => match event {
                 LightingServiceEvent::LightingOperationWrite(lighting_operation) => {

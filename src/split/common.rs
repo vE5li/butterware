@@ -5,7 +5,7 @@ use nrf_softdevice::ble::gatt_client::WriteError;
 use nrf_softdevice::RawError;
 
 use super::event::OtherEventReceiver;
-use crate::ble::FlashServiceClient;
+use crate::ble::{FlashServiceClient, EventServiceClient};
 #[cfg(feature = "lighting")]
 use crate::ble::LightingServiceClient;
 use crate::flash::OtherFlashReceiver;

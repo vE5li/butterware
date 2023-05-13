@@ -8,6 +8,7 @@
 #![feature(async_fn_in_trait)]
 #![feature(associated_type_defaults)]
 #![feature(never_type)]
+#![feature(adt_const_params)]
 #![allow(incomplete_features)]
 
 use embassy_executor::Spawner;
@@ -17,6 +18,7 @@ use embassy_nrf::interrupt;
 use nrf_softdevice::ble::{set_address, Address};
 use nrf_softdevice::{raw, Flash, Softdevice};
 use procedural::{alias_keyboard, import_keyboards};
+use nrf_softdevice::raw::ble_common_cfg_vs_uuid_t;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -114,8 +116,8 @@ async fn main(spawner: Spawner) -> ! {
         gatts_attr_tab_size: Some(raw::ble_gatts_cfg_attr_tab_size_t { attr_tab_size: 32768 }),
         gap_role_count: Some(raw::ble_gap_cfg_role_count_t {
             adv_set_count: 1,
-            periph_role_count: 3,
-            central_role_count: 3,
+            periph_role_count: 4,
+            central_role_count: 4,
             central_sec_count: 0,
             _bitfield_1: raw::ble_gap_cfg_role_count_t::new_bitfield_1(0),
         }),
@@ -126,6 +128,9 @@ async fn main(spawner: Spawner) -> ! {
             write_perm: unsafe { core::mem::zeroed() },
             _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(raw::BLE_GATTS_VLOC_STACK as u8),
         }),
+        common_vs_uuid: Some(ble_common_cfg_vs_uuid_t {
+            vs_uuid_count: 12,
+        }),
         ..Default::default()
     };
 
@@ -133,7 +138,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Initialize the settings stored in flash.
     let mut flash = Flash::take(softdevice);
-    let flash_token = flash::initalize_flash(&mut flash).await;
+    let flash_token = flash::initialize_flash(&mut flash).await;
 
     // Register BLE services.
     let server = defmt::unwrap!(Server::new(softdevice));

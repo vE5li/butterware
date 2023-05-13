@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use nrf_softdevice::ble::{Address, EncryptionInfo, IdentityKey, MasterId};
 
-pub use self::settings::{flash_task, get_settings, initalize_flash, FlashToken};
+pub use self::settings::{flash_task, get_settings, initialize_flash, FlashToken};
 pub use self::transaction::{FlashOperation, FlashTransaction};
 use crate::interface::Keyboard;
 

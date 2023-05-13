@@ -197,10 +197,25 @@ pub struct LightingServiceClient {
     pub lighting_operation: crate::led::LightingOperation,
 }
 
+#[nrf_softdevice::gatt_service(uuid = "465b52c4-f0c6-11ed-a05b-0242ac120003")]
+pub struct EventService {
+    #[characteristic(uuid = "579bce56-f0c6-11ed-a05b-0242ac120003", write)]
+    pub event: crate::split::UsedEvent,
+}
+
+#[cfg(feature = "lighting")]
+#[nrf_softdevice::gatt_client(uuid = "465b52c4-f0c6-11ed-a05b-0242ac120003")]
+pub struct EventServiceClient {
+    #[characteristic(uuid = "579bce56-f0c6-11ed-a05b-0242ac120003", write)]
+    pub event: crate::split::UsedEvent,
+}
+
+
 #[nrf_softdevice::gatt_server]
 pub struct CommunicationServer {
     pub key_state_service: KeyStateService,
     pub flash_service: FlashService,
     #[cfg(feature = "lighting")]
     pub lighting_service: LightingService,
+    pub event_service: EventService,
 }

@@ -9,7 +9,7 @@ use nrf_softdevice::Softdevice;
 use super::HalfDisconnected;
 use crate::ble::{
     Bonder, CommunicationServer, CommunicationServerEvent, FlashServiceClient, FlashServiceEvent, KeyStateServiceEvent,
-    LightingServiceClient, LightingServiceEvent, Server,
+    LightingServiceClient, LightingServiceEvent, Server, EventServiceClient, EventServiceEvent,
 };
 use crate::flash::flash_sender;
 use crate::hardware::{BitOperations, MasterState, ScanPins};
@@ -158,14 +158,14 @@ async fn master_scan(
                         ControlFlow::Continue(())
                     }
                 },
-                /*CommunicationServerEvent::EventService(event) => match event {
+                CommunicationServerEvent::EventService(event) => match event {
                     EventServiceEvent::EventWrite(event) => {
-                        defmt::debug!("Received event {:?}", flash_operation);
+                        defmt::debug!("Received event {:?}", event);
 
-                        keyboard.event(event).await;
+                        //keyboard.event(event).await;
                         ControlFlow::Continue(())
                     }
-                },*/
+                },
                 #[cfg(feature = "lighting")]
                 CommunicationServerEvent::LightingService(event) => match event {
                     LightingServiceEvent::LightingOperationWrite(lighting_operation) => {
