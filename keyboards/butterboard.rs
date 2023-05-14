@@ -6,7 +6,7 @@ use crate::flash::{get_settings, FlashToken, FlashTransaction};
 use crate::hardware::ScanPinConfig;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::*;
-use crate::led::{set_animation, Animation, Grb, Led, Rgb, Speed, Ws2812bDriver, Sk6812Driver};
+use crate::led::{set_animation, Animation, Grb, Led, Rgb, Sk6812Driver, Speed, Ws2812bDriver};
 use crate::split::trigger_event;
 use crate::Side;
 

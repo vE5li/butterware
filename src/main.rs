@@ -16,12 +16,13 @@ use embassy_nrf as _; // time driver
 use embassy_nrf::config::{HfclkSource, LfclkSource};
 use embassy_nrf::interrupt;
 use nrf_softdevice::ble::{set_address, Address};
+use nrf_softdevice::raw::ble_common_cfg_vs_uuid_t;
 use nrf_softdevice::{raw, Flash, Softdevice};
 use procedural::{alias_keyboard, import_keyboards};
-use nrf_softdevice::raw::ble_common_cfg_vs_uuid_t;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
+mod battery;
 mod ble;
 mod flash;
 mod hardware;
@@ -128,9 +129,7 @@ async fn main(spawner: Spawner) -> ! {
             write_perm: unsafe { core::mem::zeroed() },
             _bitfield_1: raw::ble_gap_cfg_device_name_t::new_bitfield_1(raw::BLE_GATTS_VLOC_STACK as u8),
         }),
-        common_vs_uuid: Some(ble_common_cfg_vs_uuid_t {
-            vs_uuid_count: 12,
-        }),
+        common_vs_uuid: Some(ble_common_cfg_vs_uuid_t { vs_uuid_count: 12 }),
         ..Default::default()
     };
 
@@ -157,6 +156,9 @@ async fn main(spawner: Spawner) -> ! {
 
     // Flash task
     defmt::unwrap!(spawner.spawn(flash::flash_task(flash, flash_token)));
+
+    // Battery task
+    defmt::unwrap!(spawner.spawn(battery::battery_task(&server)));
 
     // Led task
     #[cfg(feature = "lighting")]
