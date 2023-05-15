@@ -235,9 +235,8 @@ async fn main(spawner: Spawner) -> ! {
 
         defmt::error!("Halves disconnected");
 
-        // TODO: reimplement this
-        //#[cfg(all(feature = "lighting", not(feature = "auto-reset")))]
-        //lighting_sender.send((Used::STATUS_LEDS, Animation::Disconnected)).await;
+        #[cfg(all(feature = "lighting", not(feature = "auto-reset")))]
+        set_animation(Side::This, Used::STATUS_LEDS, Used::DISCONNECTED_ANIMATION).await;
 
         #[cfg(not(feature = "auto-reset"))]
         futures::future::pending::<()>().await;

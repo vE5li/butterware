@@ -79,6 +79,13 @@ where
         color: Led::rgb(0.0, 0.0, 0.0),
     };
 
+    /// Animation played when the halves disconnected and the auto-reset feature
+    /// is not enabled.
+    #[cfg(feature = "lighting")]
+    const DISCONNECTED_ANIMATION: Animation = Animation::Static {
+        color: Led::rgb(1.0, 0.0, 0.0),
+    };
+
     // Read battery level every 5 minutes.
     const BATTERY_SAMPLE_FREQUENCY: Duration = Duration::from_secs(300);
 
