@@ -1,68 +1,72 @@
 use embassy_nrf::saadc::{ChannelConfig, Config, Oversample, Saadc, VddhDiv5Input};
 use embassy_nrf::{bind_interrupts, saadc, Peripherals};
-use embassy_time::{Duration, Timer};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::{Channel, Receiver};
+use embassy_time::Timer;
 
-use crate::ble::Server;
+use crate::interface::Keyboard;
 
 bind_interrupts!(struct Irqs {
     SAADC => saadc::InterruptHandler;
 });
 
+pub struct BatteryLevel(pub u8);
+pub struct Voltage(pub f32);
+
+const BATTERY_CHANNEL_SIZE: usize = 2;
+
+static BATTERY_CHANNEL: Channel<ThreadModeRawMutex, BatteryLevel, BATTERY_CHANNEL_SIZE> = Channel::new();
+
+pub type BatteryLevelReceiver = Receiver<'static, ThreadModeRawMutex, BatteryLevel, BATTERY_CHANNEL_SIZE>;
+
+pub fn battery_level_receiver() -> BatteryLevelReceiver {
+    BATTERY_CHANNEL.receiver()
+}
+
 #[embassy_executor::task]
-pub async fn battery_task(server: &'static Server) {
-    let p = unsafe { Peripherals::steal() };
+pub async fn battery_task() {
+    // TODO: not steal but get from keyboard setup (?)
+    let peripherals = unsafe { Peripherals::steal() };
     let channel_config = ChannelConfig::single_ended(VddhDiv5Input);
     let mut config = Config::default();
     config.oversample = Oversample::OVER32X;
 
-    let mut saadc = Saadc::new(p.SAADC, Irqs, config, [channel_config]);
+    let mut saadc = Saadc::new(peripherals.SAADC, Irqs, config, [channel_config]);
 
     loop {
+        let mut buffer = [0; 1];
+
         saadc.calibrate().await;
+        saadc.sample(&mut buffer).await;
 
-        let mut buf = [0; 1];
-        saadc.sample(&mut buf).await;
-        let battery_percentage = calculate_battery_percentage(buf[0]) as u8;
+        let battery_percentage = calculate_battery_percentage(buffer[0]) as u8;
 
-        defmt::info!("sample: {=i16}", &buf[0]);
-        defmt::info!("percentage: {}", battery_percentage);
+        defmt::info!("current battery percentage: {}", battery_percentage);
 
-        // Notify instead
-        server.battery_service.battery_level_set(&battery_percentage);
+        BATTERY_CHANNEL.send(BatteryLevel(battery_percentage)).await;
 
-        // TODO: less often
-        Timer::after(Duration::from_secs(20)).await;
+        Timer::after(<crate::Used as Keyboard>::BATTERY_SAMPLE_FREQUENCY).await;
     }
 }
 
 fn calculate_battery_percentage(raw_value: i16) -> f32 {
-    // Define your ADC resolution in bits
+    // TODO: move to const
     let adc_resolution_bits = 12;
-
-    // Define your ADC reference voltage (in volts)
+    // TODO: move to const
     let adc_reference_voltage = 0.6;
 
-    // Define your battery voltage range (Vmin and Vmax)
-    let battery_voltage_min = 3.2;
-    let battery_voltage_max = 4.2;
+    let adc_gain = (1.0 / 6.0) as f32;
+    let adc_range = (1 << adc_resolution_bits) as f32;
 
-    // Define your ADC gain
-    let adc_gain = 6;
+    let adc_resolution = adc_reference_voltage / (adc_range * adc_gain);
 
-    // Calculate the ADC resolution based on the provided bits
-    let adc_resolution = adc_reference_voltage / ((libm::powf(2.0f32, adc_resolution_bits as f32) - 1.0) * (1.0 / adc_gain as f32));
+    // Since our reference it VDD / 5 we need to multiply by 5 here to get the
+    // actual voltage.
+    let current_voltage = (raw_value.abs() as f32) * 5.0 * adc_resolution;
 
-    defmt::info!("adc resolution: {}", adc_resolution);
+    // Voltage limits for the battery.
+    let minimum_voltage = <crate::Used as Keyboard>::BATTERY_MINIMUM_VOLTAGE.0;
+    let maximum_voltage = <crate::Used as Keyboard>::BATTERY_MAXIMUM_VOLTAGE.0;
 
-    // Calculate the battery voltage based on the raw SAADC value
-    let voltage = (raw_value.abs() as f32) * 5.0 * adc_resolution;
-
-    defmt::info!("voltage: {}", voltage);
-
-    // Calculate the battery percentage
-    let battery_percentage = ((voltage - battery_voltage_min) / (battery_voltage_max - battery_voltage_min)) * 100.0;
-
-    defmt::info!("battery_percentage: {}", voltage);
-
-    battery_percentage
+    ((current_voltage - minimum_voltage) / (maximum_voltage - minimum_voltage)) * 100.0
 }

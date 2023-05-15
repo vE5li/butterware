@@ -3,13 +3,15 @@ use core::ops::ControlFlow;
 
 use futures::future::{select, Either};
 use futures::pin_mut;
+use nrf_softdevice::ble::gatt_server::NotifyValueError;
 use nrf_softdevice::ble::{gatt_server, peripheral, set_address, Connection};
 use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
+use crate::battery::battery_level_receiver;
 use crate::ble::{
-    Bonder, CommunicationServer, CommunicationServerEvent, FlashServiceClient, FlashServiceEvent, KeyStateServiceEvent,
-    LightingServiceClient, LightingServiceEvent, Server, EventServiceClient, EventServiceEvent,
+    Bonder, CommunicationServer, CommunicationServerEvent, EventServiceClient, EventServiceEvent, FlashServiceClient, FlashServiceEvent,
+    KeyStateServiceEvent, LightingServiceClient, LightingServiceEvent, Server,
 };
 use crate::flash::flash_sender;
 use crate::hardware::{BitOperations, MasterState, ScanPins};
@@ -89,8 +91,8 @@ pub async fn do_master(
 
             defmt::warn!("Connected to host");
 
-            // Run until the host disconnects.
-            let result = master_connection(
+            let host_future = gatt_server::run(&host_connection, server, |_| {});
+            let state_future = update_master_state(
                 keyboard,
                 &mut keyboard_state,
                 pins,
@@ -98,11 +100,16 @@ pub async fn do_master(
                 communication_server,
                 &slave_connection,
                 &host_connection,
-            )
-            .await;
+            );
 
-            if result.is_err() {
-                break HalfDisconnected;
+            pin_mut!(host_future);
+            pin_mut!(state_future);
+
+            match select(host_future, state_future).await {
+                // Keyboard disconnected from host, so just continue.
+                Either::Left(..) => {}
+                // Only returns if the halves disconnected, so we break.
+                Either::Right(..) => break HalfDisconnected,
             }
         }
     };
@@ -219,7 +226,7 @@ async fn master_scan(
     }
 }
 
-async fn master_connection(
+async fn update_master_state(
     keyboard: &mut crate::Used,
     state: &mut MasterState,
     pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
@@ -228,19 +235,17 @@ async fn master_connection(
     slave_connection: &Connection,
     host_connection: &Connection,
 ) -> Result<(), HalfDisconnected> {
-    let host_future = gatt_server::run(host_connection, server, |_| {});
-    pin_mut!(host_future);
+    let battery_level_receiver = battery_level_receiver();
 
     loop {
-        let inner_future = master_scan(keyboard, state, pins, communication_server, slave_connection);
-        pin_mut!(inner_future);
+        let scan_future = master_scan(keyboard, state, pins, communication_server, slave_connection);
+        let battery_level_future = battery_level_receiver.recv();
 
-        match select(host_future, inner_future).await {
-            // Keyboard disconnected from host, so just return.
-            Either::Left(..) => return Ok(()),
-            // There is a change in the output state of the keyboard so we need to send a new input
-            // report.
-            Either::Right((result, passed_host_future)) => {
+        pin_mut!(scan_future);
+        pin_mut!(battery_level_future);
+
+        match select(scan_future, battery_level_future).await {
+            Either::Left((result, _)) => {
                 let (active_layer, key_state, injected_keys) = result?;
 
                 // If there are any, send the input once with the injected keys.
@@ -255,8 +260,13 @@ async fn master_connection(
                 //defmt::unwrap!(server.hid_service.input_report_notify(&host_connection,
                 // &input_report));
                 send_input_report(server, &host_connection, active_layer, key_state);
-
-                host_future = passed_host_future;
+            }
+            Either::Right((battery_level, _)) => {
+                match server.battery_service.battery_level_notify(host_connection, &battery_level.0) {
+                    Ok(..) => {}
+                    Err(NotifyValueError::Disconnected) => return Err(HalfDisconnected),
+                    Err(error) => defmt::warn!("Error when sending battery level: {:?}", error),
+                };
             }
         }
     }

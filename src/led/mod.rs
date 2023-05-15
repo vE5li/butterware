@@ -1,5 +1,5 @@
 use embassy_nrf::gpio::AnyPin;
-use embassy_nrf::spim::{Mode, Spim};
+use embassy_nrf::spim::Spim;
 use embassy_nrf::{peripherals, spim};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};

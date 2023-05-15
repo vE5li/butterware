@@ -158,7 +158,7 @@ async fn main(spawner: Spawner) -> ! {
     defmt::unwrap!(spawner.spawn(flash::flash_task(flash, flash_token)));
 
     // Battery task
-    defmt::unwrap!(spawner.spawn(battery::battery_task(&server)));
+    defmt::unwrap!(spawner.spawn(battery::battery_task()));
 
     // Led task
     #[cfg(feature = "lighting")]

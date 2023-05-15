@@ -1,6 +1,8 @@
 use embassy_nrf::Peripherals;
+use embassy_time::Duration;
 use nrf_softdevice::ble::{Address, AddressType};
 
+use crate::battery::Voltage;
 use crate::flash::FlashToken;
 use crate::hardware::ScanPinConfig;
 use crate::keys::Mapping;
@@ -76,6 +78,15 @@ where
     const SLAVE_ANIMATION: Animation = Animation::Static {
         color: Led::rgb(0.0, 0.0, 0.0),
     };
+
+    // Read battery level every 5 minutes.
+    const BATTERY_SAMPLE_FREQUENCY: Duration = Duration::from_secs(300);
+
+    // Minimum voltage of the battery.
+    const BATTERY_MINIMUM_VOLTAGE: Voltage = Voltage(3.2);
+
+    // Maximum voltage of the battery.
+    const BATTERY_MAXIMUM_VOLTAGE: Voltage = Voltage(4.2);
 
     /// Persistent data that is stored in the flash.
     type BoardFlash: Clone + defmt::Format = ();
