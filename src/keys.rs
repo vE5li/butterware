@@ -11,6 +11,9 @@ pub enum SpecialAction {
         side: Side,
         bond_slot: BondSlot,
     },
+    ResetPersistentData {
+        side: Side,
+    },
     SetPower {
         side: Side,
         on: bool,

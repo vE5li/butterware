@@ -126,7 +126,7 @@ pub async fn flash_task(flash: Flash, token: FlashToken) {
                 // need to erase the section before writing.
                 apply_flags |= ApplyFlags::ERASE_AND_WRITE;
             }
-            FlashOperation::Reset => {
+            FlashOperation::ResetPersistentData => {
                 aligned.settings = unsafe { MaybeUninit::zeroed().assume_init() };
 
                 // Since all we are setting all bits to 0, we can write without erasing first.

@@ -113,6 +113,9 @@ impl MasterState {
                                 crate::keys::SpecialAction::RemoveBond { side, bond_slot } => {
                                     FlashTransaction::new().remove_bond(*side, *bond_slot).apply().await;
                                 }
+                                crate::keys::SpecialAction::ResetPersistentData { side } => {
+                                    FlashTransaction::new().reset_persistent_data(*side).apply().await;
+                                }
                                 crate::keys::SpecialAction::SetAnimation { side, index, animation } => {
                                     set_animation(*side, index.clone(), animation.clone()).await;
                                 }

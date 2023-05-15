@@ -19,9 +19,7 @@ pub enum FlashOperation {
     },
     RemoveBond(BondSlot),
     StoreBoardFlash(<crate::Used as Keyboard>::BoardFlash),
-    // TODO: remove unused ?
-    #[allow(unused)]
-    Reset,
+    ResetPersistentData,
     Apply,
 }
 
@@ -77,11 +75,9 @@ impl<const N: usize> FlashTransaction<N> {
         self.queue_inner(side, FlashOperation::StoreBoardFlash(board_flash))
     }
 
-    // TODO: remove unused ?
-    #[allow(unused)]
     #[must_use = "A FlashTransaction needs to be applied in order to do anything"]
-    pub fn reset(self, side: Side) -> FlashTransaction<{ N + 1 }> {
-        self.queue_inner(side, FlashOperation::Reset)
+    pub fn reset_persistent_data(self, side: Side) -> FlashTransaction<{ N + 1 }> {
+        self.queue_inner(side, FlashOperation::ResetPersistentData)
     }
 
     pub async fn apply(self) {
