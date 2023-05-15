@@ -148,7 +148,7 @@ async fn main(spawner: Spawner) -> ! {
     // Instanciate the keyboard.
     let mut keyboard = Used::new(flash_token);
     keyboard.pre_initialize().await;
-    let (mut pins, leds) = keyboard.initialize_peripherals(peripherals).await.to_pins();
+    let (mut matrix_pins, power_pin, leds) = keyboard.initialize_peripherals(peripherals).await.to_pins();
     keyboard.post_initialize().await;
 
     // Softdevice task
@@ -162,7 +162,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Led task
     #[cfg(feature = "lighting")]
-    defmt::unwrap!(spawner.spawn(led::lighting_task(leds)));
+    defmt::unwrap!(spawner.spawn(led::lighting_task(leds, power_pin)));
 
     // Bluetooth setup
     const SCAN_DATA: &[u8] = &[0x03, 0x03, 0x09, 0x18];
@@ -212,7 +212,7 @@ async fn main(spawner: Spawner) -> ! {
                     bonder,
                     ADVERTISING_DATA.get_slice(),
                     SCAN_DATA,
-                    &mut pins,
+                    &mut matrix_pins,
                 )
                 .await
             }
@@ -222,7 +222,7 @@ async fn main(spawner: Spawner) -> ! {
                 #[cfg(feature = "right")]
                 const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
 
-                split::do_slave(softdevice, &mut keyboard, &communication_server, &mut pins, &MASTER_ADDRESS).await
+                split::do_slave(softdevice, &mut keyboard, &communication_server, &mut matrix_pins, &MASTER_ADDRESS).await
             }
         };
 

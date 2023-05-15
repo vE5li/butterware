@@ -1,4 +1,4 @@
-use embassy_nrf::gpio::AnyPin;
+use embassy_nrf::gpio::{AnyPin, Output};
 use embassy_nrf::spim::Spim;
 use embassy_nrf::{peripherals, spim};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -16,6 +16,7 @@ use crate::Side;
 #[repr(C)]
 #[derive(Clone, defmt::Format)]
 pub enum LightingOperation {
+    SetPower { on: bool },
     SetAnimation { index: LedIndex, animation: Animation },
 }
 
@@ -35,6 +36,18 @@ impl FixedGattValue for LightingOperation {
 
 pub async fn set_animation(side: Side, index: LedIndex, animation: Animation) {
     let lighting_operation = LightingOperation::SetAnimation { index, animation };
+
+    if side.includes_this() {
+        LIGHTING_OPERATIONS.send(lighting_operation.clone()).await;
+    }
+
+    if side.includes_other() {
+        OTHER_LIGHTING_OPERATIONS.send(lighting_operation).await;
+    }
+}
+
+pub async fn set_power(side: Side, on: bool) {
+    let lighting_operation = LightingOperation::SetPower { on };
 
     if side.includes_this() {
         LIGHTING_OPERATIONS.send(lighting_operation.clone()).await;
@@ -147,7 +160,7 @@ pub fn other_lighting_receiver() -> OtherLightingReceiver {
 }
 
 #[embassy_executor::task]
-pub async fn lighting_task(mut leds: UsedLeds) -> ! {
+pub async fn lighting_task(mut leds: UsedLeds, mut power_pin: Option<Output<'static, AnyPin>>) -> ! {
     let mut previous_time = embassy_time::Instant::now();
     let receiver = LIGHTING_OPERATIONS.receiver();
 
@@ -162,6 +175,14 @@ pub async fn lighting_task(mut leds: UsedLeds) -> ! {
             match select(receive_future, timer_future).await {
                 Either::Left((lighting_operation, _)) => {
                     match lighting_operation {
+                        LightingOperation::SetPower { on } => {
+                            if let Some(power_pin) = &mut power_pin {
+                                match on {
+                                    true => power_pin.set_high(),
+                                    false => power_pin.set_low(),
+                                }
+                            }
+                        }
                         LightingOperation::SetAnimation { index, animation } => leds.set_animation(index, animation),
                     }
                     break;
@@ -362,15 +383,6 @@ where
         }
     }
 }
-
-// T0H 1
-// T1H 11
-//
-// T0L 0000
-// T1L 000
-
-// 0 -> 10000
-// 1 -> 11000
 
 pub struct Sk6812Driver<const C: usize, SPI: spim::Instance> {
     strip: LedStrip<C>,

@@ -15,15 +15,15 @@ pub use self::state::{do_scan, KeyState, MasterState, SlaveState};
 
 pub type UsedLeds = <<crate::Used as Keyboard>::Leds as LedProvider>::Collection;
 
-pub struct ScanPinConfig<const C: usize, const R: usize> {
+pub struct PeripheralConfig<const C: usize, const R: usize> {
     pub columns: [AnyPin; C],
     pub rows: [AnyPin; R],
     pub power_pin: Option<AnyPin>,
     pub leds: <<crate::Used as Keyboard>::Leds as LedProvider>::Collection,
 }
 
-impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
-    pub fn to_pins(self) -> (ScanPins<'static, C, R>, UsedLeds) {
+impl<const C: usize, const R: usize> PeripheralConfig<C, R> {
+    pub fn to_pins(self) -> (MatrixPins<'static, C, R>, Option<Output<'static, AnyPin>>, UsedLeds) {
         use embassy_nrf::interrupt::InterruptExt;
 
         let columns = self
@@ -46,14 +46,13 @@ impl<const C: usize, const R: usize> ScanPinConfig<C, R> {
         unsafe { interrupt::SPIM2_SPIS2_SPI2::steal() }.set_priority(interrupt::Priority::P2);
         unsafe { interrupt::SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1::steal() }.set_priority(interrupt::Priority::P2);
 
-        (ScanPins { columns, rows, power_pin }, self.leds)
+        (MatrixPins { columns, rows }, power_pin, self.leds)
     }
 }
 
-pub struct ScanPins<'a, const C: usize, const R: usize> {
+pub struct MatrixPins<'a, const C: usize, const R: usize> {
     pub columns: [Output<'a, AnyPin>; C],
     pub rows: [Input<'a, AnyPin>; R],
-    pub power_pin: Option<Output<'a, AnyPin>>,
 }
 
 #[derive(Debug)]

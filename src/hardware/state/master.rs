@@ -5,7 +5,7 @@ use crate::flash::FlashTransaction;
 use crate::hardware::{ActiveLayer, BitOperations, DebouncedKey};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::Mapping;
-use crate::led::set_animation;
+use crate::led::{set_animation, set_power};
 
 // TODO: make fileds private?
 pub struct MasterState {
@@ -113,8 +113,11 @@ impl MasterState {
                                 crate::keys::SpecialAction::RemoveBond { side, bond_slot } => {
                                     FlashTransaction::new().remove_bond(*side, *bond_slot).apply().await;
                                 }
-                                crate::keys::SpecialAction::SwitchAnimation { side, index, animation } => {
+                                crate::keys::SpecialAction::SetAnimation { side, index, animation } => {
                                     set_animation(*side, index.clone(), animation.clone()).await;
+                                }
+                                crate::keys::SpecialAction::SetPower { side, on } => {
+                                    set_power(*side, *on).await;
                                 }
                                 crate::keys::SpecialAction::Callback(callback) => {
                                     keyboard.callback(callback.clone()).await;

@@ -14,7 +14,7 @@ use crate::ble::{
     KeyStateServiceEvent, LightingServiceClient, LightingServiceEvent, Server,
 };
 use crate::flash::flash_sender;
-use crate::hardware::{BitOperations, MasterState, ScanPins};
+use crate::hardware::{BitOperations, MasterState, MatrixPins};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 #[cfg(feature = "lighting")]
 use crate::led::lighting_sender;
@@ -27,7 +27,7 @@ pub async fn do_master(
     bonder: &'static Bonder,
     adv_data: &[u8],
     scan_data: &[u8],
-    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
+    matrix_pins: &mut MatrixPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
 ) -> Result<Infallible, HalfDisconnected> {
     defmt::debug!("Stating master");
 
@@ -68,7 +68,7 @@ pub async fn do_master(
             pin_mut!(advertise_future);
 
             let host_connection = loop {
-                let inner_future = master_scan(keyboard, &mut keyboard_state, pins, communication_server, &slave_connection);
+                let inner_future = master_scan(keyboard, &mut keyboard_state, matrix_pins, communication_server, &slave_connection);
 
                 pin_mut!(inner_future);
 
@@ -95,7 +95,7 @@ pub async fn do_master(
             let state_future = update_master_state(
                 keyboard,
                 &mut keyboard_state,
-                pins,
+                matrix_pins,
                 server,
                 communication_server,
                 &slave_connection,
@@ -135,7 +135,7 @@ pub async fn do_master(
 async fn master_scan(
     keyboard: &mut crate::Used,
     state: &mut MasterState,
-    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
+    matrix_pins: &mut MatrixPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     communication_server: &CommunicationServer,
     slave_connection: &Connection,
 ) -> Result<(usize, u64, u64), HalfDisconnected> {
@@ -149,7 +149,7 @@ async fn master_scan(
 
         let (key_state, slave_raw_state) = {
             // Create futures.
-            let scan_future = crate::hardware::do_scan(state, pins);
+            let scan_future = crate::hardware::do_scan(state, matrix_pins);
             let slave_future = gatt_server::run_until(slave_connection, communication_server, |event| match event {
                 CommunicationServerEvent::KeyStateService(event) => match event {
                     KeyStateServiceEvent::KeyStateWrite(key_state) => ControlFlow::Break(key_state),
@@ -229,7 +229,7 @@ async fn master_scan(
 async fn update_master_state(
     keyboard: &mut crate::Used,
     state: &mut MasterState,
-    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
+    matrix_pins: &mut MatrixPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     server: &Server,
     communication_server: &CommunicationServer,
     slave_connection: &Connection,
@@ -238,7 +238,7 @@ async fn update_master_state(
     let battery_level_receiver = battery_level_receiver();
 
     loop {
-        let scan_future = master_scan(keyboard, state, pins, communication_server, slave_connection);
+        let scan_future = master_scan(keyboard, state, matrix_pins, communication_server, slave_connection);
         let battery_level_future = battery_level_receiver.recv();
 
         pin_mut!(scan_future);

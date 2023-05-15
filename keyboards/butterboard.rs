@@ -3,10 +3,10 @@ use embassy_nrf::peripherals::{SPI2, SPI3, TWISPI1};
 use embassy_nrf::Peripherals;
 
 use crate::flash::{get_settings, FlashToken, FlashTransaction};
-use crate::hardware::ScanPinConfig;
+use crate::hardware::PeripheralConfig;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::*;
-use crate::led::{set_animation, Animation, Led, Sk6812Driver, Speed, Ws2812bDriver};
+use crate::led::{set_animation, set_power, Animation, Led, Sk6812Driver, Speed, Ws2812bDriver};
 use crate::split::trigger_event;
 use crate::Side;
 
@@ -15,6 +15,7 @@ pub struct PersistentData {
     keys_animation: usize,
     wings_animation: usize,
     status_animation: usize,
+    lighting_on: bool,
 }
 
 pub struct Butterboard {
@@ -27,11 +28,12 @@ register_callbacks!(Butterboard, Callbacks, [
     NextKeysAnimation,
     NextWingsAnimation,
     NextStatusAnimation,
+    ToggleLighting,
     SyncAnimations,
 ]);
 
 register_leds!(Butterboard, Leds, [
-    Keys: Sk6812Driver<19, SPI3>,
+    Keys: Sk6812Driver<1, SPI3>,
     Wings: Ws2812bDriver<57, TWISPI1>,
     Status: Ws2812bDriver<17, SPI2>,
 ]);
@@ -108,7 +110,7 @@ impl Butterboard {
     const SPE_SPC: Mapping = Mapping::tap_layer(Layers::SPECIAL, SPACE);
     #[rustfmt::skip]
     const TEST: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
-        Callbacks::SyncAnimations.mapping(), W, Callbacks::NextKeysAnimation.mapping(), Callbacks::NextWingsAnimation.mapping(), Callbacks::NextStatusAnimation.mapping(), J, L, U, Y, Y,
+        Callbacks::SyncAnimations.mapping(), Callbacks::ToggleLighting.mapping(), Callbacks::NextKeysAnimation.mapping(), Callbacks::NextWingsAnimation.mapping(), Callbacks::NextStatusAnimation.mapping(), J, L, U, Y, Y,
         A, R, S, T, G, M, N, E, I, O,
         Mapping::tap_layer(Layers::SPECIAL, Z), X, C, D, V, K, H, H, H, H,
         NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
@@ -158,6 +160,19 @@ impl Butterboard {
             .apply()
             .await;
     }
+
+    async fn toggle_lighting(&mut self) {
+        self.persistent_data.lighting_on = !self.persistent_data.lighting_on;
+
+        // TODO: also turn lighting off so we can halt the lighting task
+        set_power(Side::Both, self.persistent_data.lighting_on).await;
+
+        // Store persistent data on both sides.
+        FlashTransaction::new()
+            .store_board_flash(Side::Both, self.persistent_data)
+            .apply()
+            .await;
+    }
 }
 
 impl Scannable for Butterboard {
@@ -187,6 +202,7 @@ impl Keyboard for Butterboard {
             Callbacks::NextKeysAnimation => self.next_keys_animation().await,
             Callbacks::NextWingsAnimation => self.next_wings_animation().await,
             Callbacks::NextStatusAnimation => self.next_status_animation().await,
+            Callbacks::ToggleLighting => self.toggle_lighting().await,
             Callbacks::SyncAnimations => trigger_event(Side::Both, Events::SyncAnimations).await,
         }
     }
@@ -199,8 +215,8 @@ impl Keyboard for Butterboard {
         }
     }
 
-    async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }> {
-        ScanPinConfig {
+    async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> PeripheralConfig<{ Self::COLUMNS }, { Self::ROWS }> {
+        PeripheralConfig {
             columns: [
                 peripherals.P0_31.degrade(),
                 peripherals.P0_29.degrade(),
@@ -223,10 +239,6 @@ impl Keyboard for Butterboard {
         }
     }
 
-    /*async fn post_initialize(&mut self) {
-        set_animation(Side::This, Leds::Keys, Animation::Static { color:  }).await;
-    }*/
-
     async fn post_sides_connected(&mut self, _is_master: bool) {
         let keys_animation = Self::ANIMATIONS[self.persistent_data.keys_animation];
         let wings_animation = Self::ANIMATIONS[self.persistent_data.wings_animation];
@@ -237,5 +249,8 @@ impl Keyboard for Butterboard {
         set_animation(Side::This, Leds::Keys, keys_animation).await;
         set_animation(Side::This, Leds::Wings, wings_animation).await;
         set_animation(Side::This, Leds::Status, status_animation).await;
+
+        // Restore power state.
+        set_power(Side::This, self.persistent_data.lighting_on).await;
     }
 }

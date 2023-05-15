@@ -11,8 +11,12 @@ pub enum SpecialAction {
         side: Side,
         bond_slot: BondSlot,
     },
+    SetPower {
+        side: Side,
+        on: bool,
+    },
     #[cfg(feature = "lighting")]
-    SwitchAnimation {
+    SetAnimation {
         side: Side,
         index: LedIndex,
         animation: Animation,

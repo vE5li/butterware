@@ -4,7 +4,7 @@ use nrf_softdevice::ble::{Address, AddressType};
 
 use crate::battery::Voltage;
 use crate::flash::FlashToken;
-use crate::hardware::ScanPinConfig;
+use crate::hardware::PeripheralConfig;
 use crate::keys::Mapping;
 use crate::led::LedCollection;
 #[cfg(feature = "lighting")]
@@ -107,7 +107,7 @@ where
     async fn pre_initialize(&mut self) {}
 
     /// Initialize the peripherals. This is only run once on boot.
-    async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> ScanPinConfig<{ Self::COLUMNS }, { Self::ROWS }>;
+    async fn initialize_peripherals(&mut self, peripherals: Peripherals) -> PeripheralConfig<{ Self::COLUMNS }, { Self::ROWS }>;
 
     /// Function that gets called after initializing the peripherals. This is
     /// only run once on boot.

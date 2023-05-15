@@ -5,7 +5,7 @@ use embassy_time::{Duration, Timer};
 
 pub use self::master::MasterState;
 pub use self::slave::SlaveState;
-use super::{DebouncedKey, ScanPins};
+use super::{DebouncedKey, MatrixPins};
 use crate::interface::Scannable;
 
 pub trait KeyState {
@@ -18,16 +18,16 @@ pub trait KeyState {
 
 pub async fn do_scan(
     state: &mut impl KeyState,
-    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
+    matrix_pins: &mut MatrixPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
 ) -> u64 {
     loop {
         let mut key_state = 0;
         let mut offset = 0;
 
-        for (column_index, column) in pins.columns.iter_mut().enumerate() {
+        for (column_index, column) in matrix_pins.columns.iter_mut().enumerate() {
             column.set_high();
 
-            for (row_index, row) in pins.rows.iter().enumerate() {
+            for (row_index, row) in matrix_pins.rows.iter().enumerate() {
                 let raw_state = row.is_high();
                 state.key(column_index, row_index).update(raw_state);
 

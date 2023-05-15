@@ -13,7 +13,7 @@ use crate::ble::{
 #[cfg(feature = "lighting")]
 use crate::ble::{LightingServiceClient, LightingServiceEvent};
 use crate::flash::flash_sender;
-use crate::hardware::{ScanPins, SlaveState};
+use crate::hardware::{MatrixPins, SlaveState};
 use crate::interface::{Keyboard, Scannable};
 #[cfg(feature = "lighting")]
 use crate::led::lighting_sender;
@@ -22,7 +22,7 @@ pub async fn do_slave(
     softdevice: &Softdevice,
     keyboard: &mut crate::Used,
     communication_server: &CommunicationServer,
-    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
+    matrix_pins: &mut MatrixPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     address: &Address,
 ) -> Result<Infallible, HalfDisconnected> {
     defmt::debug!("Stating slave");
@@ -63,7 +63,7 @@ pub async fn do_slave(
     let connection_future = slave_connection(
         keyboard,
         &mut keyboard_state,
-        pins,
+        matrix_pins,
         &master_connection,
         communication_server,
         &key_state_client,
@@ -89,7 +89,7 @@ pub async fn do_slave(
 async fn slave_connection(
     _keyboard: &mut crate::Used,
     state: &mut SlaveState,
-    pins: &mut ScanPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
+    matrix_pins: &mut MatrixPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     master_connection: &Connection,
     communication_server: &CommunicationServer,
     key_state_client: &KeyStateServiceClient,
@@ -101,7 +101,7 @@ async fn slave_connection(
     loop {
         // Returns any time there is any change in the key state. This state is already
         // debounced.
-        let scan_future = crate::hardware::do_scan(state, pins);
+        let scan_future = crate::hardware::do_scan(state, matrix_pins);
         let flash_future = nrf_softdevice::ble::gatt_server::run(&master_connection, communication_server, |event| match event {
             CommunicationServerEvent::KeyStateService(event) => match event {
                 KeyStateServiceEvent::KeyStateWrite(..) => defmt::warn!("Unexpected write to the key state service"),
