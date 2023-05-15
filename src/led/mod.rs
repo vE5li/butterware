@@ -116,67 +116,6 @@ where
     }
 }
 
-fn write_value_to_slice(slice: &mut [u8], value: u8) {
-    const LOOKUP: [u8; 2] = [0b000, 0b111];
-
-    let test_bit = |offset: usize| ((value >> offset) & 0b1) as usize;
-
-    slice[8] = 0b11000000 | (LOOKUP[test_bit(0)] << 3);
-    slice[7] = 0b10000001 | (LOOKUP[test_bit(1)] << 4);
-    slice[6] = 0b00000011 | (LOOKUP[test_bit(2)] << 5);
-    slice[5] = 0b00000111 | (LOOKUP[test_bit(3)] << 6);
-    slice[4] = 0b00001110 | (LOOKUP[test_bit(4)] << 7) | (LOOKUP[test_bit(3)] >> 2);
-    slice[3] = 0b00011100 | (LOOKUP[test_bit(4)] >> 1);
-    slice[2] = 0b00111000 | (LOOKUP[test_bit(5)]);
-    slice[1] = 0b01110000 | (LOOKUP[test_bit(6)] << 1);
-    slice[0] = 0b11100000 | (LOOKUP[test_bit(7)] << 2);
-}
-
-impl<const N: usize> LedStrip<N>
-where
-    [(); N]:,
-    [(); N * 9 * 3]:,
-{
-    pub fn get_led_data(&self) -> [u8; N * 9 * 3] {
-        let mut buffer = [0; N * 9 * 3];
-
-        for index in 0..N {
-            let offset = 9 * 3 * index;
-            let led = self.leds[index];
-            write_value_to_slice(&mut buffer[offset..offset + 9], (led.red * 255.0) as u8);
-            write_value_to_slice(&mut buffer[offset + 9..offset + 18], (led.green * 255.0) as u8);
-            write_value_to_slice(&mut buffer[offset + 18..offset + 27], (led.blue * 255.0) as u8);
-        }
-
-        buffer
-    }
-
-    pub fn get_barrier_led_data(&self) -> [u8; N * 9 * 3] {
-        let mut buffer = [0; N * 9 * 3];
-        let (barrier_leds, amount) = self.barriers.first().unwrap();
-
-        for index in 0..N {
-            let offset = 9 * 3 * index;
-            let led = self.leds[index];
-            let barrier_led = barrier_leds[index];
-            write_value_to_slice(
-                &mut buffer[offset..offset + 9],
-                ((led.red * (1.0 - amount) + barrier_led.red * amount) * 255.0) as u8,
-            );
-            write_value_to_slice(
-                &mut buffer[offset + 9..offset + 18],
-                ((led.green * (1.0 - amount) + barrier_led.green * amount) * 255.0) as u8,
-            );
-            write_value_to_slice(
-                &mut buffer[offset + 18..offset + 27],
-                ((led.blue * (1.0 - amount) + barrier_led.blue * amount) * 255.0) as u8,
-            );
-        }
-
-        buffer
-    }
-}
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, defmt::Format, PartialEq)]
 pub struct Speed(pub f32);
@@ -258,23 +197,20 @@ pub trait LedDriver {
     async fn update(&mut self, elapsed_time: f32);
 }
 
-pub struct Rgb;
-pub struct Grb;
-
 embassy_nrf::bind_interrupts!(pub struct Irqs {
     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
     SPIM2_SPIS2_SPI2 => spim::InterruptHandler<peripherals::SPI2>;
     SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1 => spim::InterruptHandler<peripherals::TWISPI1>;
 });
 
-pub struct Ws2812bDriver<const C: usize, R, SPI: spim::Instance> {
+pub struct Ws2812bDriver<const C: usize, SPI: spim::Instance> {
     strip: LedStrip<C>,
     spi: Spim<'static, SPI>,
-    phantom_data: core::marker::PhantomData<(R, SPI)>,
+    phantom_data: core::marker::PhantomData<SPI>,
     current_animation: Animation,
 }
 
-impl<const C: usize, R, SPI: spim::Instance> Ws2812bDriver<C, R, SPI>
+impl<const C: usize, SPI: spim::Instance> Ws2812bDriver<C, SPI>
 where
     Irqs: embassy_cortex_m::interrupt::Binding<<SPI as embassy_nrf::spim::Instance>::Interrupt, embassy_nrf::spim::InterruptHandler<SPI>>,
 {
@@ -296,7 +232,69 @@ where
     }
 }
 
-impl<const C: usize, R, SPI: spim::Instance> LedDriver for Ws2812bDriver<C, R, SPI>
+impl<const C: usize, SPI: spim::Instance> Ws2812bDriver<C, SPI>
+where
+    [(); C]:,
+    [(); C * 9 * 3]:,
+{
+    fn write_value_to_slice(slice: &mut [u8], value: u8) {
+        const LOOKUP: [u8; 2] = [0b000, 0b111];
+
+        let test_bit = |offset: usize| ((value >> offset) & 0b1) as usize;
+
+        slice[8] = 0b11000000 | (LOOKUP[test_bit(0)] << 3);
+        slice[7] = 0b10000001 | (LOOKUP[test_bit(1)] << 4);
+        slice[6] = 0b00000011 | (LOOKUP[test_bit(2)] << 5);
+        slice[5] = 0b00000111 | (LOOKUP[test_bit(3)] << 6);
+        slice[4] = 0b00001110 | (LOOKUP[test_bit(4)] << 7) | (LOOKUP[test_bit(3)] >> 2);
+        slice[3] = 0b00011100 | (LOOKUP[test_bit(4)] >> 1);
+        slice[2] = 0b00111000 | (LOOKUP[test_bit(5)]);
+        slice[1] = 0b01110000 | (LOOKUP[test_bit(6)] << 1);
+        slice[0] = 0b11100000 | (LOOKUP[test_bit(7)] << 2);
+    }
+
+    pub fn get_led_data(&self) -> [u8; C * 9 * 3] {
+        let mut buffer = [0; C * 9 * 3];
+
+        for index in 0..C {
+            let offset = 9 * 3 * index;
+            let led = self.strip.leds[index];
+
+            Self::write_value_to_slice(&mut buffer[offset..offset + 9], (led.green * 255.0) as u8);
+            Self::write_value_to_slice(&mut buffer[offset + 9..offset + 18], (led.red * 255.0) as u8);
+            Self::write_value_to_slice(&mut buffer[offset + 18..offset + 27], (led.blue * 255.0) as u8);
+        }
+
+        buffer
+    }
+
+    pub fn get_barrier_led_data(&self) -> [u8; C * 9 * 3] {
+        let mut buffer = [0; C * 9 * 3];
+        let (barrier_leds, amount) = self.strip.barriers.first().unwrap();
+
+        for index in 0..C {
+            let offset = 9 * 3 * index;
+            let led = self.strip.leds[index];
+            let barrier_led = barrier_leds[index];
+            Self::write_value_to_slice(
+                &mut buffer[offset..offset + 9],
+                ((led.green * (1.0 - amount) + barrier_led.green * amount) * 255.0) as u8,
+            );
+            Self::write_value_to_slice(
+                &mut buffer[offset + 9..offset + 18],
+                ((led.red * (1.0 - amount) + barrier_led.red * amount) * 255.0) as u8,
+            );
+            Self::write_value_to_slice(
+                &mut buffer[offset + 18..offset + 27],
+                ((led.blue * (1.0 - amount) + barrier_led.blue * amount) * 255.0) as u8,
+            );
+        }
+
+        buffer
+    }
+}
+
+impl<const C: usize, SPI: spim::Instance> LedDriver for Ws2812bDriver<C, SPI>
 where
     [(); C]:,
     [(); C * 9 * 3]:,
@@ -332,7 +330,7 @@ where
 
     async fn update(&mut self, elapsed_time: f32) {
         if self.strip.update_barrier(elapsed_time) {
-            let _ = self.spi.write(&self.strip.get_barrier_led_data()).await;
+            let _ = self.spi.write(&self.get_barrier_led_data()).await;
         } else {
             match &mut self.current_animation {
                 Animation::Static { .. } => {}
@@ -360,7 +358,7 @@ where
                 }
             }
 
-            let _ = self.spi.write(&self.strip.get_led_data()).await;
+            let _ = self.spi.write(&self.get_led_data()).await;
         }
     }
 }
@@ -374,14 +372,14 @@ where
 // 0 -> 10000
 // 1 -> 11000
 
-pub struct Sk6812Driver<const C: usize, R, SPI: spim::Instance> {
+pub struct Sk6812Driver<const C: usize, SPI: spim::Instance> {
     strip: LedStrip<C>,
     spi: Spim<'static, SPI>,
-    phantom_data: core::marker::PhantomData<(R, SPI)>,
+    phantom_data: core::marker::PhantomData<SPI>,
     current_animation: Animation,
 }
 
-impl<const C: usize, R, SPI: spim::Instance> Sk6812Driver<C, R, SPI>
+impl<const C: usize, SPI: spim::Instance> Sk6812Driver<C, SPI>
 where
     Irqs: embassy_cortex_m::interrupt::Binding<<SPI as embassy_nrf::spim::Instance>::Interrupt, embassy_nrf::spim::InterruptHandler<SPI>>,
 {
@@ -403,7 +401,7 @@ where
     }
 }
 
-impl<const C: usize, R, SPI: spim::Instance> Sk6812Driver<C, R, SPI>
+impl<const C: usize, SPI: spim::Instance> Sk6812Driver<C, SPI>
 where
     [(); C]:,
     [(); C * 5 * 3]:,
@@ -466,7 +464,7 @@ where
     }
 }
 
-impl<const C: usize, R, SPI: spim::Instance> LedDriver for Sk6812Driver<C, R, SPI>
+impl<const C: usize, SPI: spim::Instance> LedDriver for Sk6812Driver<C, SPI>
 where
     [(); C]:,
     [(); C * 5 * 3]:,

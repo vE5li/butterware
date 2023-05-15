@@ -6,7 +6,7 @@ use crate::flash::{get_settings, FlashToken, FlashTransaction};
 use crate::hardware::ScanPinConfig;
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 use crate::keys::*;
-use crate::led::{set_animation, Animation, Grb, Led, Rgb, Sk6812Driver, Speed, Ws2812bDriver};
+use crate::led::{set_animation, Animation, Led, Sk6812Driver, Speed, Ws2812bDriver};
 use crate::split::trigger_event;
 use crate::Side;
 
@@ -31,9 +31,9 @@ register_callbacks!(Butterboard, Callbacks, [
 ]);
 
 register_leds!(Butterboard, Leds, [
-    Keys: Sk6812Driver<19, Rgb, SPI3>,
-    Wings: Ws2812bDriver<57, Grb, TWISPI1>,
-    Status: Ws2812bDriver<17, Grb, SPI2>,
+    Keys: Sk6812Driver<19, SPI3>,
+    Wings: Ws2812bDriver<57, TWISPI1>,
+    Status: Ws2812bDriver<17, SPI2>,
 ]);
 
 register_events!(Butterboard, Events, [SyncAnimations]);
