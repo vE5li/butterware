@@ -222,7 +222,14 @@ async fn main(spawner: Spawner) -> ! {
                 #[cfg(feature = "right")]
                 const MASTER_ADDRESS: Address = Used::LEFT_ADDRESS;
 
-                split::do_slave(softdevice, &mut keyboard, &communication_server, &mut matrix_pins, &MASTER_ADDRESS).await
+                split::do_slave(
+                    softdevice,
+                    &mut keyboard,
+                    &communication_server,
+                    &mut matrix_pins,
+                    &MASTER_ADDRESS,
+                )
+                .await
             }
         };
 

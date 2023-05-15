@@ -7,8 +7,8 @@ use nrf_softdevice::Softdevice;
 
 use super::HalfDisconnected;
 use crate::ble::{
-    CommunicationServer, CommunicationServerEvent, EventServiceClient, FlashServiceClient, FlashServiceEvent, KeyStateServiceClient,
-    KeyStateServiceEvent, EventServiceEvent,
+    CommunicationServer, CommunicationServerEvent, EventServiceClient, EventServiceEvent, FlashServiceClient, FlashServiceEvent,
+    KeyStateServiceClient, KeyStateServiceEvent,
 };
 #[cfg(feature = "lighting")]
 use crate::ble::{LightingServiceClient, LightingServiceEvent};

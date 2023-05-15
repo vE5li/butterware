@@ -210,7 +210,6 @@ pub struct EventServiceClient {
     pub event: crate::split::UsedEvent,
 }
 
-
 #[nrf_softdevice::gatt_server]
 pub struct CommunicationServer {
     pub key_state_service: KeyStateService,

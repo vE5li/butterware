@@ -68,11 +68,17 @@ pub async fn do_master(
             pin_mut!(advertise_future);
 
             let host_connection = loop {
-                let inner_future = master_scan(keyboard, &mut keyboard_state, matrix_pins, communication_server, &slave_connection);
+                let scan_future = master_scan(
+                    keyboard,
+                    &mut keyboard_state,
+                    matrix_pins,
+                    communication_server,
+                    &slave_connection,
+                );
 
-                pin_mut!(inner_future);
+                pin_mut!(scan_future);
 
-                match select(advertise_future, inner_future).await {
+                match select(advertise_future, scan_future).await {
                     Either::Left((advertise_result, _)) => {
                         break defmt::unwrap!(advertise_result);
                     }
