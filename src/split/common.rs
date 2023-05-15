@@ -1,6 +1,5 @@
 use embassy_time::{Duration, Timer};
-use futures::future::select;
-use futures::pin_mut;
+use futures::{pin_mut, FutureExt};
 use nrf_softdevice::ble::gatt_client::WriteError;
 use nrf_softdevice::RawError;
 
@@ -29,14 +28,15 @@ pub async fn run_clients(
                 match flash_client.flash_operation_write(&other_flash_operation).await {
                     Ok(..) => break,
                     Err(WriteError::Raw(RawError::Busy)) => {
-                        defmt::error!("flash operations busy");
-                        Timer::after(Duration::from_millis(1)).await;
+                        defmt::warn!("Flash operations busy");
+                        Timer::after(Duration::from_millis(10)).await;
                     }
-                    Err(error) => panic!("unexpected write error: {:?}", error),
+                    Err(error) => panic!("Unexpected write error: {:?}", error),
                 }
             }
         }
-    };
+    }
+    .fuse();
 
     let lighting_future = async {
         loop {
@@ -47,14 +47,15 @@ pub async fn run_clients(
                 match lighting_client.lighting_operation_write(&other_lighting_operation).await {
                     Ok(..) => break,
                     Err(WriteError::Raw(RawError::Busy)) => {
-                        defmt::error!("lighting operations busy");
-                        Timer::after(Duration::from_millis(1)).await;
+                        defmt::warn!("Lighting operations busy");
+                        Timer::after(Duration::from_millis(10)).await;
                     }
-                    Err(error) => panic!("unexpected write error: {:?}", error),
+                    Err(error) => panic!("Unexpected write error: {:?}", error),
                 }
             }
         }
-    };
+    }
+    .fuse();
 
     let event_future = async {
         loop {
@@ -65,18 +66,24 @@ pub async fn run_clients(
                 match event_client.event_write(&other_event).await {
                     Ok(..) => break,
                     Err(WriteError::Raw(RawError::Busy)) => {
-                        defmt::error!("events busy");
-                        Timer::after(Duration::from_millis(1)).await;
+                        defmt::warn!("Events busy");
+                        Timer::after(Duration::from_millis(10)).await;
                     }
-                    Err(error) => panic!("unexpected write error: {:?}", error),
+                    Err(error) => panic!("Unexpected write error: {:?}", error),
                 }
             }
         }
-    };
+    }
+    .fuse();
 
     pin_mut!(flash_future);
     pin_mut!(lighting_future);
+    pin_mut!(event_future);
 
-    // FIX: match ?
-    let _ = select(flash_future, lighting_future).await;
+    // FIX: use result (?)
+    futures::select_biased! {
+        _ = flash_future => {},
+        _ = lighting_future => {},
+        _ = event_future => {},
+    }
 }

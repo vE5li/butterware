@@ -29,7 +29,7 @@ nrf-softdevice = { git = "https://github.com/vE5li/nrf-softdevice", rev = "64a50
 nrf-softdevice-s140 = { git = "https://github.com/vE5li/nrf-softdevice", rev = "64a5000e8fa39367d459e7306c1a069ccc365b47"  }
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.4.0"
-futures = { version = "0.3.5", default-features = false }
+futures = { version = "0.3.5", default-features = false, features = ["async-await"] }
 fixed = "1.2.0"
 heapless = "0.7.1"
 atomic-pool = "1.0.0"

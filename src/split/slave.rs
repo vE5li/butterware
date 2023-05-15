@@ -1,11 +1,12 @@
 use core::convert::Infallible;
 
-use futures::future::{select, Either};
-use futures::pin_mut;
+use futures::future::select;
+use futures::{pin_mut, FutureExt};
 use nrf_softdevice::ble::{central, Address, Connection};
 use nrf_softdevice::Softdevice;
 
-use super::HalfDisconnected;
+use super::event::event_sender;
+use super::{event_receiver, HalfDisconnected};
 use crate::ble::{
     CommunicationServer, CommunicationServerEvent, EventServiceClient, EventServiceEvent, FlashServiceClient, FlashServiceEvent,
     KeyStateServiceClient, KeyStateServiceEvent,
@@ -87,22 +88,26 @@ pub async fn do_slave(
 }
 
 async fn slave_connection(
-    _keyboard: &mut crate::Used,
+    keyboard: &mut crate::Used,
     state: &mut SlaveState,
     matrix_pins: &mut MatrixPins<'_, { <crate::Used as Scannable>::COLUMNS }, { <crate::Used as Scannable>::ROWS }>,
     master_connection: &Connection,
     communication_server: &CommunicationServer,
     key_state_client: &KeyStateServiceClient,
 ) -> Result<Infallible, HalfDisconnected> {
+    let event_sender = event_sender();
     let flash_sender = flash_sender();
     #[cfg(feature = "lighting")]
     let lighting_sender = lighting_sender();
 
+    let event_receiver = event_receiver();
+
     loop {
         // Returns any time there is any change in the key state. This state is already
         // debounced.
-        let scan_future = crate::hardware::do_scan(state, matrix_pins);
-        let flash_future = nrf_softdevice::ble::gatt_server::run(&master_connection, communication_server, |event| match event {
+        let scan_future = crate::hardware::do_scan(state, matrix_pins).fuse();
+        let event_future = event_receiver.recv().fuse();
+        let connection_future = nrf_softdevice::ble::gatt_server::run(&master_connection, communication_server, |event| match event {
             CommunicationServerEvent::KeyStateService(event) => match event {
                 KeyStateServiceEvent::KeyStateWrite(..) => defmt::warn!("Unexpected write to the key state service"),
             },
@@ -119,7 +124,9 @@ async fn slave_connection(
                 EventServiceEvent::EventWrite(event) => {
                     defmt::debug!("Received event {:?}", event);
 
-                    //keyboard.event(event).await;
+                    if event_sender.try_send(event).is_err() {
+                        defmt::error!("Failed to send event");
+                    }
                 }
             },
             #[cfg(feature = "lighting")]
@@ -132,17 +139,20 @@ async fn slave_connection(
                     }
                 }
             },
-        });
+        })
+        .fuse();
 
         pin_mut!(scan_future);
-        pin_mut!(flash_future);
+        pin_mut!(event_future);
+        pin_mut!(connection_future);
 
-        match select(scan_future, flash_future).await {
-            Either::Left((raw_state, _)) => {
+        futures::select_biased! {
+            raw_state = scan_future => {
                 // Update the key state on the master.
                 key_state_client.key_state_write(&raw_state).await.map_err(|_| HalfDisconnected)?;
-            }
-            Either::Right(..) => return Err(HalfDisconnected),
+            },
+            event = event_future => keyboard.event(event).await,
+            _ = connection_future => return Err(HalfDisconnected),
         }
     }
 }

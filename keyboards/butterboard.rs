@@ -210,7 +210,7 @@ impl Keyboard for Butterboard {
     async fn event(&mut self, event: Events) {
         match event {
             Events::SyncAnimations => {
-                // Sync animations
+                self.toggle_lighting().await;
             }
         }
     }

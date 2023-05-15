@@ -2,12 +2,13 @@ use core::convert::Infallible;
 use core::ops::ControlFlow;
 
 use futures::future::{select, Either};
-use futures::pin_mut;
+use futures::{pin_mut, FutureExt};
 use nrf_softdevice::ble::gatt_server::NotifyValueError;
 use nrf_softdevice::ble::{gatt_server, peripheral, set_address, Connection};
 use nrf_softdevice::Softdevice;
 
-use super::HalfDisconnected;
+use super::event::event_sender;
+use super::{event_receiver, HalfDisconnected};
 use crate::battery::battery_level_receiver;
 use crate::ble::{
     Bonder, CommunicationServer, CommunicationServerEvent, EventServiceClient, EventServiceEvent, FlashServiceClient, FlashServiceEvent,
@@ -18,6 +19,7 @@ use crate::hardware::{BitOperations, MasterState, MatrixPins};
 use crate::interface::{Keyboard, KeyboardExtension, Scannable};
 #[cfg(feature = "lighting")]
 use crate::led::lighting_sender;
+use crate::split::UsedEvent;
 
 pub async fn do_master(
     softdevice: &Softdevice,
@@ -79,9 +81,7 @@ pub async fn do_master(
                 pin_mut!(scan_future);
 
                 match select(advertise_future, scan_future).await {
-                    Either::Left((advertise_result, _)) => {
-                        break defmt::unwrap!(advertise_result);
-                    }
+                    Either::Left((advertise_result, _)) => break defmt::unwrap!(advertise_result),
                     Either::Right((result, passed_advertise_future)) => {
                         // We just want to make sure that the slave did not disconnect, so we discard
                         // all other information.
@@ -145,17 +145,24 @@ async fn master_scan(
     communication_server: &CommunicationServer,
     slave_connection: &Connection,
 ) -> Result<(usize, u64, u64), HalfDisconnected> {
+    let event_sender = event_sender();
     let flash_sender = flash_sender();
     #[cfg(feature = "lighting")]
     let lighting_sender = lighting_sender();
+    let event_receiver = event_receiver();
+
+    enum ScanEvent {
+        KeyState(u64, u64),
+        Event(UsedEvent),
+    }
 
     loop {
         let master_raw_state = state.master_raw_state;
         let slave_raw_state = state.slave_raw_state;
 
-        let (key_state, slave_raw_state) = {
+        let scan_event = {
             // Create futures.
-            let scan_future = crate::hardware::do_scan(state, matrix_pins);
+            let scan_future = crate::hardware::do_scan(state, matrix_pins).fuse();
             let slave_future = gatt_server::run_until(slave_connection, communication_server, |event| match event {
                 CommunicationServerEvent::KeyStateService(event) => match event {
                     KeyStateServiceEvent::KeyStateWrite(key_state) => ControlFlow::Break(key_state),
@@ -175,7 +182,10 @@ async fn master_scan(
                     EventServiceEvent::EventWrite(event) => {
                         defmt::debug!("Received event {:?}", event);
 
-                        //keyboard.event(event).await;
+                        if event_sender.try_send(event).is_err() {
+                            defmt::error!("Failed to send event");
+                        }
+
                         ControlFlow::Continue(())
                     }
                 },
@@ -191,24 +201,25 @@ async fn master_scan(
                         ControlFlow::Continue(())
                     }
                 },
-            });
+            })
+            .fuse();
+            let event_future = event_receiver.recv().fuse();
 
             pin_mut!(scan_future);
             pin_mut!(slave_future);
+            pin_mut!(event_future);
 
-            match select(scan_future, slave_future).await {
-                // Master side state changed.
-                Either::Left((key_state, _)) => {
+            futures::select_biased! {
+                key_state = scan_future => {
                     #[cfg(feature = "left")]
                     let combined_state = slave_raw_state | (key_state << <crate::Used as KeyboardExtension>::KEYS_PER_SIDE);
 
                     #[cfg(feature = "right")]
                     let combined_state = (slave_raw_state << <crate::Used as KeyboardExtension>::KEYS_PER_SIDE) | key_state;
 
-                    (combined_state, slave_raw_state)
+                    ScanEvent::KeyState(combined_state, slave_raw_state)
                 }
-                // Slave side state changed.
-                Either::Right((key_state, _)) => {
+                key_state = slave_future => {
                     let key_state = key_state.map_err(|_| HalfDisconnected)?;
 
                     #[cfg(feature = "left")]
@@ -217,17 +228,25 @@ async fn master_scan(
                     #[cfg(feature = "right")]
                     let combined_state = master_raw_state | (key_state << <crate::Used as KeyboardExtension>::KEYS_PER_SIDE);
 
-                    (combined_state, key_state)
+                    ScanEvent::KeyState(combined_state, key_state)
                 }
+                event = event_future => ScanEvent::Event(event),
             }
         };
 
-        // We do this update down here because we cannot mutably access the state inside
-        // of the scope above.
-        state.slave_raw_state = slave_raw_state;
+        match scan_event {
+            ScanEvent::KeyState(key_state, slave_raw_state) => {
+                // We do this update down here because we cannot mutably access the state inside
+                // of the scope above.
+                state.slave_raw_state = slave_raw_state;
 
-        if let Some(output_state) = state.apply(keyboard, key_state).await {
-            return Ok(output_state);
+                if let Some(output_state) = state.apply(keyboard, key_state).await {
+                    return Ok(output_state);
+                }
+            }
+            ScanEvent::Event(event) => {
+                keyboard.event(event).await;
+            }
         }
     }
 }
