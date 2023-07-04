@@ -28,6 +28,7 @@ pub struct Butterboard {
 
 register_layers!(Butterboard, Layers, [BASE, NUMBERS, SYMBOLS, SPECIAL]);
 
+#[cfg(feature = "lighting")]
 register_callbacks!(Butterboard, Callbacks, [
     NextKeysAnimation,
     NextWingsAnimation,
@@ -43,6 +44,7 @@ register_leds!(Butterboard, Leds, [
     Status: Ws2812bDriver<18, SPI2>,
 ]);
 
+#[cfg(feature = "lighting")]
 register_events!(Butterboard, Events, [SyncAnimations]);
 
 #[rustfmt::skip]
@@ -69,7 +71,38 @@ macro_rules! new_layer {
 }
 
 impl Butterboard {
-    #[cfg(feature = "lighting")]
+    #[rustfmt::skip]
+    const BASE: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
+        DE_Q, DE_W, DE_F, DE_P, DE_B, DE_J, DE_L, DE_U, DE_Y, DE_SS,
+        DE_A, DE_R, DE_S, DE_T, DE_G, DE_M, DE_N, DE_E, DE_I, DE_O,
+        DE_Z, DE_X, DE_C, DE_D, DE_V, DE_K, DE_H, DE_UDIA, DE_ODIA, DE_ADIA,
+        NONE, hold_tap(MOD_LCTRL, ESC), hold_tap(Layers::SPECIAL, SPACE), MOD_LMETA, MOD_LALT, MOD_LCTRL, Layers::NUMBERS, hold_tap(Layers::SYMBOLS, BACKSPACE), hold_tap(MOD_LSHIFT, ENTER), NONE,
+    ];
+    #[rustfmt::skip]
+    const NUMBERS: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
+        F1, F2, F3, F4, F5, F6, F7, F8, F9, F10,
+        N1, N2, N3, N4, N5, N6, N7, N8, N9, N0,
+        NONE, NONE, NONE, NONE, F11, F12, NONE, NONE, NONE, NONE,
+        NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
+    ];
+    #[rustfmt::skip]
+    const SPECIAL: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
+        Callbacks::SyncAnimations, Callbacks::ToggleLighting, NONE, NONE, HOME, END, INSERT, UP, NONE, PAGEUP,
+        Callbacks::NextKeysAnimation, Callbacks::NextWingsAnimation, Callbacks::NextStatusAnimation, NONE, TAB, BACKSPACE, LEFT, DOWN, RIGHT, PAGEDOWN,
+        NONE, NONE, NONE, NONE, NONE, DELETE, NONE, NONE, NONE, NONE,
+        NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
+    ];
+    #[rustfmt::skip]
+    const SYMBOLS: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
+        DE_EXLM, DE_DQUO, DE_QUES, DE_AT,   DE_DLR,  DE_AMPR, DE_EQL,  DE_SLSH, DE_QUOT, DE_ASTR,
+        DE_COLN, DE_LABK, DE_LCBR, DE_LBRC, DE_LPRN, DE_RPRN, DE_RBRC, DE_RCBR, DE_RABK, DE_SCLN,
+        DE_BSLS, DE_PERC, DE_PIPE, DE_HASH, DE_COMM, DE_DOT,  DE_MINS, DE_TILD, DE_UNDS, DE_PLUS,
+        NONE, DE_GRV, DE_CIRC, DE_DEG, DE_EURO, NONE, NONE, NONE, NONE, NONE,
+    ];
+}
+
+#[cfg(feature = "lighting")]
+impl Butterboard {
     const ANIMATIONS: &[Animation] = &[
         Animation::Rainbow {
             hue: 0.0,
@@ -99,36 +132,7 @@ impl Butterboard {
             offset: 0.0,
         },
     ];
-    #[rustfmt::skip]
-    const BASE: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
-        DE_Q, DE_W, DE_F, DE_P, DE_B, DE_J, DE_L, DE_U, DE_Y, DE_SS,
-        DE_A, DE_R, DE_S, DE_T, DE_G, DE_M, DE_N, DE_E, DE_I, DE_O,
-        DE_Z, DE_X, DE_C, DE_D, DE_V, DE_K, DE_H, DE_UDIA, DE_ODIA, DE_ADIA,
-        NONE, hold_tap(MOD_LCTRL, ESC), hold_tap(Layers::SPECIAL, SPACE), MOD_LMETA, MOD_LALT, MOD_LCTRL, Layers::NUMBERS, hold_tap(Layers::SYMBOLS, BACKSPACE), hold_tap(MOD_LSHIFT, ENTER), NONE,
-    ];
-    #[rustfmt::skip]
-    const NUMBERS: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
-        F1, F2, F3, F4, F5, F6, F7, F8, F9, F10,
-        N1, N2, N3, N4, N5, N6, N7, N8, N9, N0,
-        NONE, NONE, NONE, NONE, F11, F12, NONE, NONE, NONE, NONE,
-        NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
-    ];
-    #[rustfmt::skip]
-    const SPECIAL: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
-        Callbacks::SyncAnimations, Callbacks::ToggleLighting, NONE, NONE, HOME, END, INSERT, UP, NONE, PAGEUP,
-        Callbacks::NextKeysAnimation, Callbacks::NextWingsAnimation, Callbacks::NextStatusAnimation, NONE, TAB, BACKSPACE, LEFT, DOWN, RIGHT, PAGEDOWN,
-        NONE, NONE, NONE, NONE, NONE, DELETE, NONE, NONE, NONE, NONE,
-        NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
-    ];
-    #[rustfmt::skip]
-    const SYMBOLS: [Mapping; <Butterboard as KeyboardExtension>::KEYS_TOTAL] = new_layer![
-        DE_EXLM, DE_DQUO, DE_QUES, DE_AT,   DE_DLR,  DE_AMPR, DE_EQL,  DE_SLSH, DE_QUOT, DE_ASTR,
-        DE_COLN, DE_LABK, DE_LCBR, DE_LBRC, DE_LPRN, DE_RPRN, DE_RBRC, DE_RCBR, DE_RABK, DE_SCLN,
-        DE_BSLS, DE_PERC, DE_PIPE, DE_HASH, DE_COMM, DE_DOT,  DE_MINS, DE_TILD, DE_UNDS, DE_PLUS,
-        NONE, DE_GRV, DE_CIRC, DE_DEG, DE_EURO, NONE, NONE, NONE, NONE, NONE,
-    ];
 
-    #[cfg(feature = "lighting")]
     async fn next_keys_animation(&mut self) {
         // Go to next animation.
         self.persistent_data.keys_animation = (self.persistent_data.keys_animation + 1) % Self::ANIMATIONS.len();
@@ -141,7 +145,6 @@ impl Butterboard {
         store_board_flash(Side::Both, self.persistent_data).await;
     }
 
-    #[cfg(feature = "lighting")]
     async fn next_wings_animation(&mut self) {
         // Go to next animation.
         self.persistent_data.wings_animation = (self.persistent_data.wings_animation + 1) % Self::ANIMATIONS.len();
@@ -154,7 +157,6 @@ impl Butterboard {
         store_board_flash(Side::Both, self.persistent_data).await;
     }
 
-    #[cfg(feature = "lighting")]
     async fn next_status_animation(&mut self) {
         // Go to next animation.
         self.persistent_data.status_animation = (self.persistent_data.status_animation + 1) % Self::ANIMATIONS.len();
@@ -167,7 +169,6 @@ impl Butterboard {
         store_board_flash(Side::Both, self.persistent_data).await;
     }
 
-    #[cfg(feature = "lighting")]
     async fn toggle_lighting(&mut self) {
         self.persistent_data.lighting_state = !self.persistent_data.lighting_state;
 
@@ -186,9 +187,11 @@ impl Scannable for Butterboard {
 
 impl Keyboard for Butterboard {
     type BoardFlash = PersistentData;
+    #[cfg(feature = "lighting")]
     type Callbacks = Callbacks;
+    #[cfg(feature = "lighting")]
     type Events = Events;
-#[cfg(feature = "lighting")]
+    #[cfg(feature = "lighting")]
     type Leds = Leds;
 
     const DEVICE_NAME: &'static [u8] = b"Butterboard";
@@ -203,36 +206,18 @@ impl Keyboard for Butterboard {
         Self { persistent_data }
     }
 
+    #[cfg(feature = "lighting")]
     async fn callback(&mut self, callback: Callbacks) {
         match callback {
-            Callbacks::NextKeysAnimation =>
-            {
-                #[cfg(feature = "lighting")]
-                self.next_keys_animation().await
-            }
-            Callbacks::NextWingsAnimation =>
-            {
-                #[cfg(feature = "lighting")]
-                self.next_wings_animation().await
-            }
-            Callbacks::NextStatusAnimation =>
-            {
-                #[cfg(feature = "lighting")]
-                self.next_status_animation().await
-            }
-            Callbacks::ToggleLighting =>
-            {
-                #[cfg(feature = "lighting")]
-                self.toggle_lighting().await
-            }
-            Callbacks::SyncAnimations =>
-            {
-                #[cfg(feature = "lighting")]
-                trigger_event(Side::Both, Events::SyncAnimations).await
-            }
+            Callbacks::NextKeysAnimation => self.next_keys_animation().await,
+            Callbacks::NextWingsAnimation => self.next_wings_animation().await,
+            Callbacks::NextStatusAnimation => self.next_status_animation().await,
+            Callbacks::ToggleLighting => self.toggle_lighting().await,
+            Callbacks::SyncAnimations => trigger_event(Side::Both, Events::SyncAnimations).await,
         }
     }
 
+    #[cfg(feature = "lighting")]
     async fn event(&mut self, event: Events) {
         match event {
             Events::SyncAnimations => {
@@ -280,7 +265,7 @@ impl Keyboard for Butterboard {
         PeripheralConfig {
             columns,
             rows,
-#[cfg(feature = "lighting")]
+            #[cfg(feature = "lighting")]
             leds: initialize_leds! {
                 Keys: Ws2812bDriver::new(peripherals.P0_06.degrade(), peripherals.P0_08.degrade(), peripherals.SPI3),
                 Wings: Ws2812bDriver::new(peripherals.P0_20.degrade(), peripherals.P0_09.degrade(), peripherals.TWISPI1),
