@@ -37,6 +37,7 @@ mod power;
 mod split;
 #[macro_use]
 mod interface;
+mod side;
 
 // Import every *.rs file in the specified directory (relative to the src
 // folder) into a module named keyboards.
@@ -53,43 +54,13 @@ use crate::hardware::ConfiguredPeripherals;
 use crate::interface::Keyboard;
 #[cfg(feature = "lighting")]
 use crate::led::set_animation;
+use crate::side::Side;
 
 #[cfg(all(feature = "left", feature = "right"))]
 compile_error!("Only one side can be built for at a time. Try disabling either the left or right feature");
 
 #[cfg(not(any(feature = "left", feature = "right")))]
 compile_error!("No side to compile for was selected. Try enabling the left or right feature");
-
-#[derive(Clone, Copy, Debug, defmt::Format, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Side {
-    This,
-    Other,
-    Left,
-    Right,
-    Both,
-}
-
-impl Side {
-    const fn includes_this(&self) -> bool {
-        match self {
-            Side::This => true,
-            Side::Other => false,
-            Side::Left => cfg!(feature = "left"),
-            Side::Right => cfg!(feature = "right"),
-            Side::Both => true,
-        }
-    }
-
-    const fn includes_other(&self) -> bool {
-        match self {
-            Side::This => false,
-            Side::Other => true,
-            Side::Left => cfg!(feature = "right"),
-            Side::Right => cfg!(feature = "left"),
-            Side::Both => true,
-        }
-    }
-}
 
 #[embassy_executor::task]
 async fn softdevice_task(sd: &'static Softdevice) {

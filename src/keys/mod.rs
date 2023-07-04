@@ -1,9 +1,9 @@
 use crate::flash::BondSlot;
 use crate::interface::Keyboard;
-use crate::power::PowerState;
 #[cfg(feature = "lighting")]
 use crate::led::{Animation, LedIndex};
-use crate::Side;
+use crate::power::PowerState;
+use crate::side::Side;
 
 pub mod german;
 

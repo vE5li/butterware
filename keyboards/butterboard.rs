@@ -10,8 +10,8 @@ use crate::keys::*;
 #[cfg(feature = "lighting")]
 use crate::led::{set_animation, Animation, Led, Speed, Ws2812bDriver};
 use crate::power::{set_power_state, PowerState};
+use crate::side::Side;
 use crate::split::trigger_event;
-use crate::Side;
 
 #[derive(Clone, Copy, defmt::Format)]
 pub struct PersistentData {

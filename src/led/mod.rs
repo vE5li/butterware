@@ -10,7 +10,7 @@ use nrf_softdevice::ble::FixedGattValue;
 use palette::FromColor;
 
 use crate::interface::{Keyboard, UnwrapInfelliable};
-use crate::Side;
+use crate::side::Side;
 
 #[repr(C)]
 #[derive(Clone, defmt::Format)]

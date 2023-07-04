@@ -3,7 +3,7 @@ use nrf_softdevice::ble::security::{IoCapabilities, SecurityHandler};
 use nrf_softdevice::ble::{gatt_server, Connection, EncryptionInfo, IdentityKey, MasterId};
 
 use crate::flash::{get_settings, try_store_peer, try_store_system_attributes, BondSlot, FlashToken, Peer, SystemAttributes, NO_ADDRESS};
-use crate::Side;
+use crate::side::Side;
 
 pub struct Bonder {
     flash_token: FlashToken,

@@ -2,7 +2,7 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
 
 use crate::interface::Keyboard;
-use crate::Side;
+use crate::side::Side;
 
 const EVENTS_CHANNEL_SIZE: usize = 10;
 

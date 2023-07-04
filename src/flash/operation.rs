@@ -2,7 +2,7 @@ use nrf_softdevice::ble::FixedGattValue;
 
 use super::{BondSlot, Peer, SystemAttributes, FLASH_OPERATIONS, SLAVE_FLASH_OPERATIONS};
 use crate::interface::Keyboard;
-use crate::Side;
+use crate::side::Side;
 
 #[repr(C)]
 #[derive(Clone, defmt::Format)]
